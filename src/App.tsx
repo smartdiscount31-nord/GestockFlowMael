@@ -44,6 +44,7 @@ import { ConsignmentsSection } from './components/ConsignmentsSection';
 import { Consignments } from './pages/consignments';
 import Login from './pages/Login';
 import MobileActions from './pages/MobileActions';
+import FicheMagasin from './pages/Tools/FicheMagasin';
 
 function App() {
   const { metrics, isLoading, error, fetchMetrics } = useSalesStore();
@@ -109,7 +110,7 @@ function App() {
       'customers','consignments',
       // Settings / tools / marketplace
       'mail-settings','invoice-settings','settings-ebay','settings-users',
-      'marketplace-pricing','repair-calculator','atelier-prise-en-charge','mobile-actions'
+      'marketplace-pricing','repair-calculator','atelier-prise-en-charge','mobile-actions','fiche-magasin'
     ]);
 
     const mapPathToPage = (pathname: string): string | null => {
@@ -163,6 +164,7 @@ function App() {
 
       // Tools / Workshop
       if (p === '/tools/repair-calculator') return 'repair-calculator';
+      if (p === '/tools/fiche-magasin') return 'fiche-magasin';
       if (p === '/atelier/prise-en-charge') return 'atelier-prise-en-charge';
 
       return null;
@@ -643,6 +645,8 @@ function App() {
           return can('viewConsignments', userRole) ? <Consignments /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
         case 'repair-calculator':
           return <RepairCalculator />;
+        case 'fiche-magasin':
+          return <FicheMagasin />;
         case 'atelier-prise-en-charge':
           return <PriseEnCharge />;
         case 'marketplace-pricing':
