@@ -1281,6 +1281,13 @@ function App() {
                 >
                   Aides Prix & Fiches Marketing
                 </a>
+                <a
+                  href="#"
+                  onClick={() => setCurrentPage('fiche-magasin')}
+                  className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
+                >
+                  Imprimer fiche magasin
+                </a>
               </div>
             )}
           </div>
