@@ -390,7 +390,7 @@ export default function FicheMagasin() {
         <h2 className="text-lg font-semibold">Fiche Magasin</h2>
 
         <div className="text-sm text-gray-600">
-          - 1 produit: A6 • 2–4 produits: A4 (2x2) • > 4: pagination automatique (4 par page)
+          - 1 produit: A6 • 2–4 produits: A4 (2x2) • {'>'} 4: pagination automatique (4 par page)
         </div>
 
         <textarea
