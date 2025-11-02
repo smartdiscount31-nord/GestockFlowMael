@@ -159,10 +159,17 @@ function drawA6Card(doc: jsPDF, x: number, y: number, w = 105, h = 148, data: Re
   doc.setFont('helvetica', 'normal');
   doc.text(data.sim || '-', left + 22, specTop + lh);
 
+  // Cases réseau (4G / 5G) à cocher au stylo
   doc.setFont('helvetica', 'bold');
   doc.text('RESEAU:', left, specTop + 2 * lh);
+  // Dessiner deux petits carrés + libellés 4G / 5G
+  const boxY = specTop + 2 * lh - 3; // centré verticalement sur le texte
+  doc.setDrawColor(0);
+  doc.rect(left + 22, boxY, 4, 4); // 4G
   doc.setFont('helvetica', 'normal');
-  doc.text(data.reseau, left + 22, specTop + 2 * lh);
+  doc.text('4G', left + 28, specTop + 2 * lh);
+  doc.rect(left + 40, boxY, 4, 4); // 5G
+  doc.text('5G', left + 46, specTop + 2 * lh);
 
   // Colonne droite
   const rightX = left + boxW / 2 + 5;
@@ -214,14 +221,42 @@ export default function FicheMagasin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const [variantByChildId, setVariantByChildId] = useState<Record<string, { grade: string | null; capacity: string | null; sim_type: string | null }>>({});
 
-  // Charger logo commun
+  // Charger logo (localStorage si dispo, sinon fallback /logo-smartdiscount31.png)
   useEffect(() => {
     (async () => {
+      try {
+        const saved = localStorage.getItem('ficheMagasin:logo');
+        if (saved) {
+          setLogo(saved);
+          return;
+        }
+      } catch {}
       const d = await fileToDataUrl('/logo-smartdiscount31.png');
       setLogo(d);
     })();
   }, []);
+
+  const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = () => {
+        const dataUrl = String(r.result || '');
+        setLogo(dataUrl);
+        try { localStorage.setItem('ficheMagasin:logo', dataUrl); } catch {}
+      };
+      r.readAsDataURL(f);
+    } catch {}
+  };
+
+  const resetLogo = async () => {
+    try { localStorage.removeItem('ficheMagasin:logo'); } catch {}
+    const d = await fileToDataUrl('/logo-smartdiscount31.png');
+    setLogo(d);
+  };
 
   // Charger initialement selon ?ids=
   useEffect(() => {
@@ -231,8 +266,8 @@ export default function FicheMagasin() {
 
   const idsFromURL = useMemo(() => {
     try {
-      const url = new URL(window.location.href);
-      const ids = (url.searchParams.get('ids') || '')
+      const params = new URLSearchParams(window.location.search);
+      const ids = (params.get('ids') || '')
         .split(',')
         .map(s => s.trim())
         .filter(Boolean);
@@ -282,6 +317,30 @@ export default function FicheMagasin() {
 
       setChildren(rows);
 
+      // Charger variantes (grade, capacity, sim_type) par produit sérialisé
+      try {
+        const childIds = rows.map(r => r.id).filter(Boolean);
+        if (childIds.length > 0) {
+          const { data: vars } = await supabase
+            .from('product_variants')
+            .select('product_id, grade, capacity, sim_type')
+            .in('product_id', childIds as any);
+          const map: Record<string, { grade: string | null; capacity: string | null; sim_type: string | null }> = {};
+          (vars || []).forEach((v: any) => {
+            map[v.product_id] = {
+              grade: v.grade ?? null,
+              capacity: v.capacity ?? null,
+              sim_type: v.sim_type ?? null
+            };
+          });
+          setVariantByChildId(map);
+        } else {
+          setVariantByChildId({});
+        }
+      } catch {
+        setVariantByChildId({});
+      }
+
       // Charger parents
       const parentIds = Array.from(new Set(rows.map(r => r.parent_id).filter(Boolean))) as string[];
       if (parentIds.length > 0) {
@@ -326,8 +385,20 @@ export default function FicheMagasin() {
   }
 
   const resolved = useMemo<ResolvedFiche[]>(() => {
-    return children.map(ch => resolveOne(ch, parentsById[ch.parent_id || ''] || null));
-  }, [children, parentsById]);
+    return children.map(ch => {
+      const base = resolveOne(ch, parentsById[ch.parent_id || ''] || null);
+      const v = variantByChildId[ch.id];
+      if (v) {
+        if (v.capacity) base.storage = String(v.capacity).trim();
+        if (v.sim_type) base.sim = String(v.sim_type).trim();
+        if (v.grade) {
+          base.grade_letter = String(v.grade).trim().toUpperCase();
+          base.grade_label = ''; // libellé distinct si besoin plus tard
+        }
+      }
+      return base;
+    });
+  }, [children, parentsById, variantByChildId]);
 
   function preview() {
     if (!resolved.length) {
@@ -425,6 +496,24 @@ export default function FicheMagasin() {
           </button>
         </div>
 
+        {/* Logo: import et réinitialisation (persisté en localStorage) */}
+        <div className="flex items-center gap-3 text-sm mt-3">
+          <label className="font-medium">Logo:</label>
+          <input
+            type="file"
+            accept="image/png,image/jpeg"
+            onChange={handleLogoFileChange}
+            className="text-sm"
+          />
+          <button
+            type="button"
+            onClick={resetLogo}
+            className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+          >
+            Réinitialiser
+          </button>
+        </div>
+
         {error && <div className="text-red-600 text-sm">{error}</div>}
 
         {/* Récap minimal des éléments chargés */}
@@ -443,7 +532,7 @@ export default function FicheMagasin() {
       </div>
 
       <div className="border rounded overflow-hidden">
-        <iframe ref={frameRef} className="w-full h-[600px]" title="Aperçu PDF" />
+        <iframe ref={frameRef} className="w-full h-[85vh]" title="Aperçu PDF" />
       </div>
     </div>
   );
