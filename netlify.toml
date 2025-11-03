@@ -1,0 +1,34 @@
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200
+
+# Scheduled Netlify Function: ebay-orders-sync
+# Runs every 5 minutes to ingest eBay orders and decrement EBAY stock on parent products
+[functions."ebay-orders-sync"]
+  schedule = "*/5 * * * *"
+
+# Scheduled Netlify Function: marketplaces-reconcile-stock
+# Runs every 10 minutes to reconcile EBAY depot quantities to eBay offers (keeps sync alive even if app is closed)
+[functions."marketplaces-reconcile-stock"]
+  schedule = "*/10 * * * *"
+
+# Scheduled Netlify Function: consignments-sync-invoices
+# Runs every 5 minutes to sync invoice statuses and create INVOICE/PAYMENT movements for consignments
+[functions."consignments-sync-invoices"]
+  schedule = "*/5 * * * *"
+
+# Scheduled Netlify Function: consignments-check-unpaid
+# Runs daily at 9 AM to check for unpaid consignments > 30 days and create notifications
+[functions."consignments-check-unpaid"]
+  schedule = "0 9 * * *"
+
+# Scheduled Netlify Function: agenda-reminders-run
+# Runs every 5 minutes to check and send agenda reminders
+[functions."agenda-reminders-run"]
+  schedule = "*/5 * * * *"
+
+# Scheduled Netlify Function: agenda-daily-summary
+# Runs daily at 19:00 Europe/Paris (18:00 UTC winter, 17:00 UTC summer) to send daily summary of unfinished tasks
+[functions."agenda-daily-summary"]
+  schedule = "0 18 * * *"
