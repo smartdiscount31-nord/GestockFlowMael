@@ -150,9 +150,15 @@ export default function LabelPrintButton({ product }: { product: PamProduct }) {
       const vatRaw = await getSerialVatType(product);
       const vat = computeVatLabel(vatRaw);
 
-      // cadre
+      // cadre (agrandi d’environ +3%)
       doc.setDrawColor(0); doc.setLineWidth(0.3);
-      doc.roundedRect(m, m, innerW, H - m*2, 1.2, 1.2);
+      const innerH = H - m * 2;
+      const frameScale = 1.03; // +3%
+      const rectX = m - (innerW * (frameScale - 1)) / 2;
+      const rectY = m - (innerH * (frameScale - 1)) / 2;
+      const rectW = innerW * frameScale;
+      const rectH = innerH * frameScale;
+      doc.roundedRect(rectX, rectY, rectW, rectH, 1.2, 1.2);
 
       // QR (vrai QR avec deeplink gestock://product/{serial})
       const qrSize = 10.5, qrX = m + 1.2, qrY = m + 1.1;
@@ -162,15 +168,29 @@ export default function LabelPrintButton({ product }: { product: PamProduct }) {
       doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
 
       // BARCODE — top row, full width to the right of QR, half height
-      const quiet = 2.0, gap = 2.0, bcH = 5.2, bcTopY = qrY;
+      // Augmente la surface des barres de +5% en réduisant la zone silencieuse si nécessaire
+      const gap = 2.0, bcH = 5.2, bcTopY = qrY;
       const bcX = qrX + qrSize + gap;
       const bcW = (xR - 1.2) - bcX;
+
+      const baseQuiet = 2.0;        // zone silencieuse nominale (mm) de chaque côté
+      const baseBarW = bcW - baseQuiet * 2;
+      const targetScale = 1.5;     // +5% de largeur des barres
+      let desiredBarW = baseBarW * targetScale;
+
+      const minQuiet = 0.8;         // mm minimum recommandé de chaque côté
+      let quietEff = Math.max(minQuiet, (bcW - desiredBarW) / 2);
+      if (quietEff * 2 + desiredBarW > bcW) {
+        // Ajuste si l’espace total ne permet pas exactement +15%
+        desiredBarW = Math.max(0, bcW - quietEff * 2);
+      }
+
       doc.setFillColor(0,0,0);
-      drawCode39(doc, bcX + quiet, bcTopY, bcW - quiet * 2, bcH, serial);
+      drawCode39(doc, bcX + quietEff, bcTopY, desiredBarW, bcH, serial);
 
       doc.setFont('courier','bold'); doc.setFontSize(7.4);
       const serialTextY = bcTopY + bcH + 3.0;
-      (doc as any).text(`${serial}  ${vat}`, bcX + bcW - quiet, serialTextY, { align: 'right' });
+      (doc as any).text(`${serial}  ${vat}`, bcX + bcW - quietEff, serialTextY, { align: 'right' });
 
       // PV/PVP (sans € et sans décimales)
       doc.setFont('helvetica','normal'); doc.setFontSize(6.0);
