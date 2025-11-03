@@ -1346,7 +1346,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                           <td className="px-1 py-4 whitespace-nowrap text-sm text-gray-500">
                             {(() => {
                               const children = (childProducts[product.id] || []).filter((c: any) => !!c.serial_number);
-                              const canViewPrice = canSeePurchasePrice(userRole, (product as any).created_by, currentUserId);
+                              const canViewPrice = canSeePurchasePrice(userRole, (product as any)['created_by'], currentUserId);
                               if (children.length === 0) {
                                 if (!canViewPrice) {
                                   return <span className="text-gray-400">***</span>;
@@ -1833,7 +1833,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                           {userRole === ROLES.ADMIN_FULL && (
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               {(() => {
-                                const canViewPrice = canSeePurchasePrice(userRole, parentInline?.created_by, currentUserId);
+                                const canViewPrice = canSeePurchasePrice(userRole, (parentInline as any)?.['created_by'], currentUserId);
                                 if (!canViewPrice) return <span className="text-gray-400">***</span>;
                                 return parentInline?.vat_type === "margin"
                                   ? ((parentInline?.purchase_price_with_fees ?? 0).toFixed(2) + " € TVM")
@@ -2098,7 +2098,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                                             {userRole === ROLES.ADMIN_FULL && (
                                               <td className="px-4 py-2 text-sm">
                                                 {(() => {
-                                                  const canViewPrice = canSeePurchasePrice(userRole, child.created_by, currentUserId);
+                                                  const canViewPrice = canSeePurchasePrice(userRole, (child as any)?.['created_by'], currentUserId);
                                                   if (!canViewPrice) return <span className="text-gray-400">***</span>;
                                                   return child.vat_type === "margin"
                                                     ? (child.purchase_price_with_fees?.toFixed(2) || '-') + " € TVM"
@@ -2308,7 +2308,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                                               <td className="px-4 py-2 text-sm">{product.name}</td>
                                               <td className="px-4 py-2 text-sm">
                                                 {(() => {
-                                                  const canViewPrice = canSeePurchasePrice(userRole, product.created_by, currentUserId);
+                                                  const canViewPrice = canSeePurchasePrice(userRole, (product as any)['created_by'], currentUserId);
                                                   if (!canViewPrice) return <span className="text-gray-400">***</span>;
                                                   return product.vat_type === "margin"
                                                     ? (product.purchase_price_with_fees?.toFixed(2) || '-') + " € TVM"

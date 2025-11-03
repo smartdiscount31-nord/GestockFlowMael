@@ -47,6 +47,8 @@ type ResolvedFiche = {
   grade_letter: string;   // "A"
   grade_label: string;    // "OR"
   price: number;          // retail_price enfant
+  network4g?: boolean;    // case 4G cochée
+  network5g?: boolean;    // case 5G cochée
 };
 
 const DEFAULT_PHRASE_1 = 'Cet appareil a été reconditionné et contrôlé par nos techniciens en boutique.';
@@ -159,10 +161,28 @@ function drawA6Card(doc: jsPDF, x: number, y: number, w = 105, h = 148, data: Re
   doc.setFont('helvetica', 'normal');
   doc.text(data.sim || '-', left + 22, specTop + lh);
 
-  doc.setFont('helvetica', 'bold');
-  doc.text('RESEAU:', left, specTop + 2 * lh);
+  // Réseau (deux cases à cocher à côté des libellés, sans libellé "RESEAU:")
+  const netY = specTop + 2 * lh;
+  const boxSize = 4;
+  const yTop = netY - 3;
+  doc.setDrawColor(0);
+  // 4G
+  doc.rect(left, yTop, boxSize, boxSize);
+  if (data.network4g) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('✓', left + 1.5, netY - 0.5);
+  }
   doc.setFont('helvetica', 'normal');
-  doc.text(data.reseau, left + 22, specTop + 2 * lh);
+  doc.text('4G', left + boxSize + 4, netY);
+  // 5G
+  const x5g = left + boxSize + 4 + 18;
+  doc.rect(x5g, yTop, boxSize, boxSize);
+  if (data.network5g) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('✓', x5g + 1.5, netY - 0.5);
+  }
+  doc.setFont('helvetica', 'normal');
+  doc.text('5G', x5g + boxSize + 4, netY);
 
   // Colonne droite
   const rightX = left + boxW / 2 + 5;
@@ -214,14 +234,57 @@ export default function FicheMagasin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const [variantByChildId, setVariantByChildId] = useState<Record<string, { grade: string | null; capacity: string | null; sim_type: string | null }>>({});
+  const [parentVariantsById, setParentVariantsById] = useState<Record<string, { color?: string | null; grade?: string | null; capacity?: string | null; sim_type?: string | null }[]>>({});
+  const [overrides, setOverrides] = useState<Record<string, Partial<ResolvedFiche>>>({});
+  const setOverride = React.useCallback((id: string, patch: Partial<ResolvedFiche>) => {
+    setOverrides(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  }, []);
+  const setVariantForChild = React.useCallback((childId: string, v: { grade?: string | null; capacity?: string | null; sim_type?: string | null }) => {
+    setVariantByChildId(prev => ({
+      ...prev,
+      [childId]: {
+        grade: (v.grade ?? null) as any,
+        capacity: (v.capacity ?? null) as any,
+        sim_type: (v.sim_type ?? null) as any
+      }
+    }));
+  }, []);
 
-  // Charger logo commun
+  // Charger logo (localStorage si dispo, sinon fallback /logo-smartdiscount31.png)
   useEffect(() => {
     (async () => {
+      try {
+        const saved = localStorage.getItem('ficheMagasin:logo');
+        if (saved) {
+          setLogo(saved);
+          return;
+        }
+      } catch {}
       const d = await fileToDataUrl('/logo-smartdiscount31.png');
       setLogo(d);
     })();
   }, []);
+
+  const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = () => {
+        const dataUrl = String(r.result || '');
+        setLogo(dataUrl);
+        try { localStorage.setItem('ficheMagasin:logo', dataUrl); } catch {}
+      };
+      r.readAsDataURL(f);
+    } catch {}
+  };
+
+  const resetLogo = async () => {
+    try { localStorage.removeItem('ficheMagasin:logo'); } catch {}
+    const d = await fileToDataUrl('/logo-smartdiscount31.png');
+    setLogo(d);
+  };
 
   // Charger initialement selon ?ids=
   useEffect(() => {
@@ -231,8 +294,8 @@ export default function FicheMagasin() {
 
   const idsFromURL = useMemo(() => {
     try {
-      const url = new URL(window.location.href);
-      const ids = (url.searchParams.get('ids') || '')
+      const params = new URLSearchParams(window.location.search);
+      const ids = (params.get('ids') || '')
         .split(',')
         .map(s => s.trim())
         .filter(Boolean);
@@ -282,6 +345,41 @@ export default function FicheMagasin() {
 
       setChildren(rows);
 
+      // Charger variantes depuis products_with_stock (par parent) et associer un défaut par enfant
+      try {
+        const parentIdsForVariants = Array.from(new Set(rows.map(r => r.parent_id).filter(Boolean))) as string[];
+        if (parentIdsForVariants.length > 0) {
+          const { data: vrows } = await supabase
+            .from('products_with_stock')
+            .select('id,variants')
+            .in('id', parentIdsForVariants as any);
+          const pv: Record<string, any[]> = {};
+          (vrows || []).forEach((r: any) => {
+            pv[r.id] = Array.isArray(r.variants) ? r.variants : [];
+          });
+          setParentVariantsById(pv);
+
+          // Associer à chaque enfant une variante par défaut (première)
+          const defMap: Record<string, { grade: string | null; capacity: string | null; sim_type: string | null }> = {};
+          rows.forEach(ch => {
+            const arr = pv[ch.parent_id || ''] || [];
+            const first = arr[0] || {};
+            defMap[ch.id] = {
+              grade: (first.grade ?? null),
+              capacity: (first.capacity ?? null),
+              sim_type: (first.sim_type ?? null)
+            };
+          });
+          setVariantByChildId(defMap);
+        } else {
+          setParentVariantsById({});
+          setVariantByChildId({});
+        }
+      } catch {
+        setParentVariantsById({});
+        setVariantByChildId({});
+      }
+
       // Charger parents
       const parentIds = Array.from(new Set(rows.map(r => r.parent_id).filter(Boolean))) as string[];
       if (parentIds.length > 0) {
@@ -326,8 +424,34 @@ export default function FicheMagasin() {
   }
 
   const resolved = useMemo<ResolvedFiche[]>(() => {
-    return children.map(ch => resolveOne(ch, parentsById[ch.parent_id || ''] || null));
-  }, [children, parentsById]);
+    return children.map(ch => {
+      const base = resolveOne(ch, parentsById[ch.parent_id || ''] || null);
+      const v = variantByChildId[ch.id];
+      if (v) {
+        if (v.capacity) base.storage = String(v.capacity).trim();
+        if (v.sim_type) base.sim = String(v.sim_type).trim();
+        if (v.grade) {
+          base.grade_letter = String(v.grade).trim().toUpperCase();
+          base.grade_label = base.grade_label || '';
+        }
+      }
+      const ov = overrides[ch.id] || {};
+      const merged: ResolvedFiche = {
+        ...base,
+        title: (ov as any).title ?? base.title,
+        storage: (ov as any).storage ?? base.storage,
+        sim: (ov as any).sim ?? base.sim,
+        batterie: (ov as any).batterie ?? base.batterie,
+        note: (ov as any).note ?? base.note,
+        grade_letter: (ov as any).grade_letter ?? base.grade_letter,
+        grade_label: (ov as any).grade_label ?? base.grade_label,
+        price: typeof (ov as any).price === 'number' ? (ov as any).price : base.price,
+        network4g: typeof (ov as any).network4g === 'boolean' ? (ov as any).network4g : false,
+        network5g: typeof (ov as any).network5g === 'boolean' ? (ov as any).network5g : false,
+      };
+      return merged;
+    });
+  }, [children, parentsById, variantByChildId, overrides]);
 
   function preview() {
     if (!resolved.length) {
@@ -338,7 +462,7 @@ export default function FicheMagasin() {
     if (resolved.length === 1) {
       const doc = new jsPDF({ unit: 'mm', format: 'a6', orientation: 'portrait' });
       drawA6Card(doc, 0, 0, 105, 148, resolved[0], logo);
-      const pdfUrl = doc.output('bloburl');
+      const pdfUrl = String(doc.output('bloburl'));
       if (frameRef.current) frameRef.current.src = pdfUrl;
       return;
     }
@@ -358,7 +482,7 @@ export default function FicheMagasin() {
       const slot = cells[idx % 4];
       drawA6Card(doc, slot.x, slot.y, 105, 148, r, logo);
     });
-    const pdfUrl = doc.output('bloburl');
+    const pdfUrl = String(doc.output('bloburl'));
     if (frameRef.current) frameRef.current.src = pdfUrl;
   }
 
@@ -390,7 +514,7 @@ export default function FicheMagasin() {
         <h2 className="text-lg font-semibold">Fiche Magasin</h2>
 
         <div className="text-sm text-gray-600">
-          - 1 produit: A6 • 2–4 produits: A4 (2x2) • > 4: pagination automatique (4 par page)
+          - 1 produit: A6 • 2–4 produits: A4 (2x2) • {'>'} 4: pagination automatique (4 par page)
         </div>
 
         <textarea
@@ -425,7 +549,134 @@ export default function FicheMagasin() {
           </button>
         </div>
 
+        {/* Logo: import et réinitialisation (persisté en localStorage) */}
+        <div className="flex items-center gap-3 text-sm mt-3">
+          <label className="font-medium">Logo:</label>
+          <input
+            type="file"
+            accept="image/png,image/jpeg"
+            onChange={handleLogoFileChange}
+            className="text-sm"
+          />
+          <button
+            type="button"
+            onClick={resetLogo}
+            className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+          >
+            Réinitialiser
+          </button>
+        </div>
+
         {error && <div className="text-red-600 text-sm">{error}</div>}
+
+        {/* Édition des fiches */}
+        {resolved.length > 0 && (
+          <div className="space-y-4 mt-3">
+            {resolved.map((r) => {
+              const ov = overrides[r.child.id] || {};
+              const arr = parentVariantsById[r.child.parent_id || ''] || [];
+              const cur = variantByChildId[r.child.id] || {};
+              const curIdx = Math.max(0, arr.findIndex(v => (v.grade||'')===(cur.grade||'') && (v.capacity||'')===(cur.capacity||'') && (v.sim_type||'')===(cur.sim_type||'')));
+              return (
+                <div key={r.child.id} className="border rounded p-3 space-y-2">
+                  {arr.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium">Variante</label>
+                      <select
+                        className="border rounded px-2 py-1 text-sm"
+                        value={String(curIdx)}
+                        onChange={(e) => {
+                          const idx = parseInt(e.target.value, 10);
+                          const v = arr[idx] || {};
+                          setVariantForChild(r.child.id, v as any);
+                        }}
+                      >
+                        {arr.map((v, i) => (
+                          <option key={i} value={i}>{`${v.grade || ''} ${v.capacity || ''} ${v.sim_type || ''}`.trim()}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <label className="flex flex-col">
+                      <span className="text-xs text-gray-600">Titre</span>
+                      <input className="border rounded px-2 py-1"
+                        value={String((ov as any).title ?? r.title)}
+                        onChange={(e) => setOverride(r.child.id, { title: e.target.value } as any)}
+                      />
+                    </label>
+                    <label className="flex flex-col">
+                      <span className="text-xs text-gray-600">Capacité</span>
+                      <input className="border rounded px-2 py-1"
+                        value={String((ov as any).storage ?? r.storage)}
+                        onChange={(e) => setOverride(r.child.id, { storage: e.target.value } as any)}
+                      />
+                    </label>
+                    <label className="flex flex-col">
+                      <span className="text-xs text-gray-600">SIM</span>
+                      <input className="border rounded px-2 py-1"
+                        value={String((ov as any).sim ?? r.sim)}
+                        onChange={(e) => setOverride(r.child.id, { sim: e.target.value } as any)}
+                      />
+                    </label>
+                    <label className="flex flex-col">
+                      <span className="text-xs text-gray-600">Batterie (%)</span>
+                      <input className="border rounded px-2 py-1" type="number" min={0} max={100}
+                        value={String((ov as any).batterie ?? r.batterie).replace('%','')}
+                        onChange={(e) => setOverride(r.child.id, { batterie: `${e.target.value.replace(/[^0-9]/g,'')}%` } as any)}
+                      />
+                    </label>
+                    <label className="flex flex-col">
+                      <span className="text-xs text-gray-600">Grade lettre</span>
+                      <input className="border rounded px-2 py-1"
+                        value={String((ov as any).grade_letter ?? r.grade_letter)}
+                        onChange={(e) => setOverride(r.child.id, { grade_letter: e.target.value.toUpperCase() } as any)}
+                      />
+                    </label>
+                    <label className="flex flex-col">
+                      <span className="text-xs text-gray-600">Grade libellé</span>
+                      <input className="border rounded px-2 py-1"
+                        value={String((ov as any).grade_label ?? r.grade_label)}
+                        onChange={(e) => setOverride(r.child.id, { grade_label: e.target.value.toUpperCase() } as any)}
+                      />
+                    </label>
+                    <label className="flex flex-col col-span-2">
+                      <span className="text-xs text-gray-600">Note</span>
+                      <textarea className="border rounded px-2 py-1 rows-2"
+                        value={String((ov as any).note ?? r.note)}
+                        onChange={(e) => setOverride(r.child.id, { note: e.target.value } as any)}
+                      />
+                    </label>
+                    <label className="flex flex-col">
+                      <span className="text-xs text-gray-600">Prix (€)</span>
+                      <input className="border rounded px-2 py-1" type="number" min={0}
+                        value={String((ov as any).price ?? r.price)}
+                        onChange={(e) => setOverride(r.child.id, { price: Number(e.target.value || 0) } as any)}
+                      />
+                    </label>
+                    <div className="flex items-center gap-4">
+                      <label className="inline-flex items-center gap-1 text-sm">
+                        <input type="checkbox"
+                          checked={Boolean((ov as any).network4g ?? false)}
+                          onChange={(e) => setOverride(r.child.id, { network4g: e.target.checked } as any)}
+                        />
+                        <span>4G</span>
+                      </label>
+                      <label className="inline-flex items-center gap-1 text-sm">
+                        <input type="checkbox"
+                          checked={Boolean((ov as any).network5g ?? false)}
+                          onChange={(e) => setOverride(r.child.id, { network5g: e.target.checked } as any)}
+                        />
+                        <span>5G</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Récap minimal des éléments chargés */}
         <div className="text-xs text-gray-600">
@@ -443,7 +694,7 @@ export default function FicheMagasin() {
       </div>
 
       <div className="border rounded overflow-hidden">
-        <iframe ref={frameRef} className="w-full h-[600px]" title="Aperçu PDF" />
+        <iframe ref={frameRef} className="w-full h-[85vh]" title="Aperçu PDF" />
       </div>
     </div>
   );

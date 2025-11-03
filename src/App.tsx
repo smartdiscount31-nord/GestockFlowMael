@@ -1,6 +1,6 @@
 /* @ts-nocheck */
 import React, { useEffect, useState } from 'react';
-import { Package, Bell, DollarSign, Settings, Users, ShoppingBag, Cloud, PenTool as Tool, Box, Layers, Wrench, Calculator, LogOut, User } from 'lucide-react';
+import { Package, Bell, DollarSign, Settings, Users, ShoppingBag, Cloud, PenTool as Tool, Box, Layers, Wrench, Calculator, LogOut, User, Calendar } from 'lucide-react';
 import { useSalesStore } from './store/salesStore';
 import { Products } from './pages/Products';
 import { ProductForm } from './components/Products/ProductForm';
@@ -45,6 +45,7 @@ import { Consignments } from './pages/consignments';
 import Login from './pages/Login';
 import MobileActions from './pages/MobileActions';
 import FicheMagasin from './pages/Tools/FicheMagasin';
+import { Agenda } from './pages/Agenda';
 
 function App() {
   const { metrics, isLoading, error, fetchMetrics } = useSalesStore();
@@ -107,7 +108,7 @@ function App() {
       'dashboard','product-list','product-stock','stock-management',
       'category-management','variant-management','shipping-boxes',
       'select-type','add-product','add-product-pam','add-product-multiple',
-      'customers','consignments',
+      'customers','consignments','agenda',
       // Settings / tools / marketplace
       'mail-settings','invoice-settings','settings-ebay','settings-users',
       'marketplace-pricing','repair-calculator','atelier-prise-en-charge','mobile-actions','fiche-magasin'
@@ -161,6 +162,9 @@ function App() {
 
       // Customers
       if (p === '/customers') return 'customers';
+
+      // Agenda
+      if (p === '/agenda') return 'agenda';
 
       // Tools / Workshop
       if (p === '/tools/repair-calculator') return 'repair-calculator';
@@ -643,6 +647,8 @@ function App() {
           return <MobileActions />;
         case 'consignments':
           return can('viewConsignments', userRole) ? <Consignments /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
+        case 'agenda':
+          return <Agenda />;
         case 'repair-calculator':
           return <RepairCalculator />;
         case 'fiche-magasin':
@@ -1245,6 +1251,14 @@ function App() {
             </a>
           )}
           <a
+            href="#"
+            onClick={() => setCurrentPage('agenda')}
+            className={`px-4 py-2 flex items-center space-x-3 text-gray-300 hover:bg-[#24303a] ${currentPage === 'agenda' ? 'bg-[#24303a]' : ''}`}
+          >
+            <Calendar size={18} />
+            <span>Agenda</span>
+          </a>
+          <a
             href="http://cloud-allcheaper.interfacelte.com/index.php/login"
             target="_blank"
             rel="noopener noreferrer"
@@ -1280,6 +1294,13 @@ function App() {
                   className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
                 >
                   Aides Prix & Fiches Marketing
+                </a>
+                <a
+                  href="#"
+                  onClick={() => setCurrentPage('fiche-magasin')}
+                  className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
+                >
+                  Imprimer fiche magasin
                 </a>
               </div>
             )}

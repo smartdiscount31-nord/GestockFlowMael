@@ -22,3 +22,13 @@ status = 200
 # Runs daily at 9 AM to check for unpaid consignments > 30 days and create notifications
 [functions."consignments-check-unpaid"]
   schedule = "0 9 * * *"
+
+# Scheduled Netlify Function: agenda-reminders-run
+# Runs every 5 minutes to check and send agenda reminders
+[functions."agenda-reminders-run"]
+  schedule = "*/5 * * * *"
+
+# Scheduled Netlify Function: agenda-daily-summary
+# Runs daily at 19:00 Europe/Paris (18:00 UTC winter, 17:00 UTC summer) to send daily summary of unfinished tasks
+[functions."agenda-daily-summary"]
+  schedule = "0 18 * * *"
