@@ -332,12 +332,21 @@ export function ConsignmentsSection() {
 
     window.addEventListener("consignments:stock-updated", handleStockUpdate as EventListener);
 
+    // Souscription Realtime Supabase sur stock_produit pour MAJ instantanée
+    const channel = supabase
+      .channel("consignments_stock_produit")
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_produit" }, () => {
+        try { fetchAll(); } catch {}
+      })
+      .subscribe();
+
     // Fallback de rafraîchissement léger toutes les 30s (optimisé)
     const interval = setInterval(fetchAll, 30000);
     return () => {
       cancelled = true;
       clearInterval(interval);
       window.removeEventListener("consignments:stock-updated", handleStockUpdate as EventListener);
+      try { supabase.removeChannel(channel); } catch {}
     };
   }, []);
 
