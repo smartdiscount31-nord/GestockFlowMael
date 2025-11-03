@@ -117,27 +117,33 @@ export const SerialProductFormModal: React.FC<SerialProductFormModalProps> = ({
     const fetchCurrentStock = async () => {
       console.log("[SerialProductFormModal] Chargement du stock actuel pour le produit:", initialValues.id);
 
-      // Récupérer le stock depuis stock_produit
+      // Récupérer le stock depuis stock_produit (priorité aux quantités positives, sinon dernière ligne)
       const { data: stockData, error: stockError } = await supabase
         .from("stock_produit")
         .select("stock_id, quantite")
         .eq("produit_id", initialValues.id)
-        .gt("quantite", 0)
+        .order("quantite", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (!ignore) {
         if (stockError) {
           console.error("[SerialProductFormModal] Erreur lors du chargement du stock:", stockError);
-        } else if (stockData) {
+        } else if (stockData && stockData.stock_id) {
           console.log("[SerialProductFormModal] Stock actuel trouvé:", stockData);
-          setInitialStockId(stockData.stock_id);
+          const sid = String(stockData.stock_id);
+          setInitialStockId(sid);
           setForm(prev => ({
             ...prev,
-            stock_id: stockData.stock_id
+            stock_id: sid
           }));
         } else {
           console.log("[SerialProductFormModal] Aucun stock trouvé pour ce produit");
-          setInitialStockId(null);
+          const sid = initialValues.stock_id ? String(initialValues.stock_id) : "";
+          setInitialStockId(sid || null);
+          if (sid) {
+            setForm(prev => ({ ...prev, stock_id: sid }));
+          }
         }
       }
     };
