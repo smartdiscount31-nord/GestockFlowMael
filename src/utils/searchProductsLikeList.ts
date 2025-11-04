@@ -13,7 +13,7 @@ export interface ProductSearchResult {
   purchase_price_with_fees?: number | null;
   pro_price?: number | null;
   vat_type?: 'normal' | 'margin' | string | null;
-  stock?: number | null;
+  stock?: number | null; 
 }
 
 /**

@@ -48,6 +48,9 @@ import FicheMagasin from './pages/Tools/FicheMagasin';
 import { Agenda } from './pages/Agenda';
 import SalesSummary from './pages/reports/SalesSummary';
 import RefundsPage from './pages/billing/RefundsPage';
+import { InvoiceDetail } from './components/Billing/InvoiceDetail';
+import { QuoteDetail } from './components/Billing/QuoteDetail';
+import { CreditNoteDetail } from './components/Billing/CreditNoteDetail';
 
 function App() {
   const { metrics, isLoading, error, fetchMetrics } = useSalesStore();
@@ -102,10 +105,10 @@ function App() {
   useEffect(() => {
     const ALLOWED = new Set<string>([
       // Billing
-      'quotes-list','quotes-new','quotes-edit',
-      'invoices-list','invoices-new','invoices-edit',
+      'quotes-list','quotes-new','quotes-edit','quotes-view',
+      'invoices-list','invoices-new','invoices-edit','invoices-view','invoice-detail',
       'orders-list','orders-new','orders-edit',
-      'credit-notes-list','credit-notes-new','credit-notes-edit',
+      'credit-notes-list','credit-notes-new','credit-notes-edit','credit-notes-view',
       'document-types',
       // Core pages already used in the app
       'dashboard','product-list','product-stock','stock-management',
@@ -126,14 +129,17 @@ function App() {
       if (p === '/billing/invoices') return 'invoices-list';
       if (p === '/billing/invoices/new') return 'invoices-new';
       if (p.startsWith('/billing/invoices/edit')) return 'invoices-edit';
+      if (p.startsWith('/billing/invoices/view')) return 'invoices-view';
 
       if (p === '/billing/quotes') return 'quotes-list';
       if (p === '/billing/quotes/new') return 'quotes-new';
       if (p.startsWith('/billing/quotes/edit')) return 'quotes-edit';
+      if (p.startsWith('/billing/quotes/view')) return 'quotes-view';
 
       if (p === '/billing/credit-notes') return 'credit-notes-list';
       if (p === '/billing/credit-notes/new') return 'credit-notes-new';
       if (p.startsWith('/billing/credit-notes/edit')) return 'credit-notes-edit';
+      if (p.startsWith('/billing/credit-notes/view')) return 'credit-notes-view';
 
       if (p === '/billing/document-types') return 'document-types';
 
@@ -627,12 +633,17 @@ function App() {
           return <QuoteForm />;
         case 'quotes-edit':
           return <QuoteForm quoteId={sessionStorage.getItem('editQuoteId') || undefined} />;
+        case 'quotes-view':
+          return <QuoteDetail quoteId={sessionStorage.getItem('viewQuoteId') || ''} onBack={() => setCurrentPage('quotes-list')} />;
         case 'invoices-list':
           return <InvoiceList />;
         case 'invoices-new':
           return <InvoiceForm />;
         case 'invoices-edit':
           return <InvoiceForm invoiceId={sessionStorage.getItem('editInvoiceId') || undefined} />;
+        case 'invoices-view':
+        case 'invoice-detail':
+          return <InvoiceDetail invoiceId={sessionStorage.getItem('viewInvoiceId') || ''} onBack={() => setCurrentPage('invoices-list')} />;
         case 'orders-list':
           return can('viewOrders', userRole) ? <OrderList /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
         case 'orders-new':
@@ -645,6 +656,8 @@ function App() {
           return <CreditNoteForm />;
         case 'credit-notes-edit':
           return <CreditNoteForm creditNoteId={sessionStorage.getItem('editCreditNoteId') || undefined} />;
+        case 'credit-notes-view':
+          return <CreditNoteDetail creditNoteId={sessionStorage.getItem('viewCreditNoteId') || ''} onBack={() => setCurrentPage('credit-notes-list')} />;
         case 'document-types':
           return <DocumentTypesPage />;
         // Ajout de la route pour la gestion des clients

@@ -142,8 +142,21 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ invoiceId, onBack 
   };
   
   const handleCreateCreditNote = () => {
-    // Redirect to credit note creation page with invoice ID
-    window.location.href = `/credit-notes/new?fromInvoice=${invoiceId}`;
+    try {
+      sessionStorage.setItem('fromInvoiceId', invoiceId);
+    } catch {}
+    if ((window as any).__setCurrentPage) {
+      (window as any).__setCurrentPage('credit-notes-new');
+    } else {
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.set('page', 'credit-notes-new');
+        window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      } catch {
+        window.location.href = '/?page=credit-notes-new';
+      }
+    }
   };
   
   const handlePrint = () => {

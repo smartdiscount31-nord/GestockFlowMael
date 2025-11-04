@@ -82,6 +82,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
   const [isClientSectionCollapsed, setIsClientSectionCollapsed] = useState(false);
   const [billingManual, setBillingManual] = useState(false);
   const [shippingManual, setShippingManual] = useState(false);
+  const [viewAfterSave, setViewAfterSave] = useState(false);
   
   // Totals
   const [totals, setTotals] = useState({
@@ -340,6 +341,8 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
       e.preventDefault();
     }
     console.log('Submitting form with data:', formData);
+    const openAfter = viewAfterSave;
+    if (viewAfterSave) setViewAfterSave(false);
 
     if (!formData.customer_id) {
       alert('Veuillez sélectionner un client');
@@ -427,7 +430,12 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
         }
 
         console.log('Quote updated successfully');
-        if (onSaved) {
+        if (openAfter) {
+          try { sessionStorage.setItem('viewQuoteId', quoteId); } catch {}
+          if ((window as any).__setCurrentPage) {
+            (window as any).__setCurrentPage('quotes-view');
+          }
+        } else if (onSaved) {
           onSaved(quoteId);
         } else if ((window as any).__setCurrentPage) {
           (window as any).__setCurrentPage('quotes-list');
@@ -470,7 +478,12 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
         }
 
         console.log('Quote created successfully');
-        if (onSaved) {
+        if (openAfter) {
+          try { sessionStorage.setItem('viewQuoteId', newId); } catch {}
+          if ((window as any).__setCurrentPage) {
+            (window as any).__setCurrentPage('quotes-view');
+          }
+        } else if (onSaved) {
           onSaved(newId);
         } else if ((window as any).__setCurrentPage) {
           (window as any).__setCurrentPage('quotes-list');
@@ -526,6 +539,16 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
           >
             <Save size={18} />
             {isLoading ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setViewAfterSave(true); handleSubmit(); }}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
+            disabled={isLoading}
+            title="Enregistrer puis ouvrir la visualisation"
+          >
+            <Save size={18} />
+            {isLoading ? 'Ouverture…' : 'Enregistrer et visualiser'}
           </button>
         </div>
       </div>
@@ -1236,7 +1259,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
           </div>
         </div>
         {/* Bouton d'action en bas */}
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"
             onClick={handleSubmit}
@@ -1244,6 +1267,15 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
           >
             <Save size={18} />
             Enregistrer
+          </button>
+          <button
+            type="button"
+            onClick={() => { setViewAfterSave(true); handleSubmit(); }}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
+            title="Enregistrer puis ouvrir la visualisation"
+          >
+            <Save size={18} />
+            Enregistrer et visualiser
           </button>
         </div>
       </form>

@@ -52,6 +52,7 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
     tax_rate: 20,
     total_price: 0
   });
+  const [viewAfterSave, setViewAfterSave] = useState(false);
   
   // Loading state
   const [isLoading, setIsLoading] = useState(false);
@@ -308,6 +309,8 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log('Submitting form with data:', formData);
+    const openAfter = viewAfterSave;
+    if (viewAfterSave) setViewAfterSave(false);
     
     if (!formData.invoice_id) {
       alert('Veuillez sélectionner une facture');
@@ -404,7 +407,16 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
           if (deleteError) throw deleteError;
         }
         
-        if (onSaved) onSaved(creditNoteId);
+        if (openAfter) {
+          try { sessionStorage.setItem('viewCreditNoteId', creditNoteId); } catch {}
+          if ((window as any).__setCurrentPage) {
+            (window as any).__setCurrentPage('credit-notes-view');
+          }
+        } else if (onSaved) {
+          onSaved(creditNoteId);
+        } else if ((window as any).__setCurrentPage) {
+          (window as any).__setCurrentPage('credit-notes-list');
+        }
       } else {
         // Create new credit note
         console.log('Creating new credit note');
@@ -442,7 +454,16 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
           if (itemsError) throw itemsError;
         }
         
-        if (onSaved) onSaved(newCreditNoteId);
+        if (openAfter) {
+          try { sessionStorage.setItem('viewCreditNoteId', newCreditNoteId); } catch {}
+          if ((window as any).__setCurrentPage) {
+            (window as any).__setCurrentPage('credit-notes-view');
+          }
+        } else if (onSaved) {
+          onSaved(newCreditNoteId);
+        } else if ((window as any).__setCurrentPage) {
+          (window as any).__setCurrentPage('credit-notes-list');
+        }
       }
     } catch (err) {
       console.error('Error saving credit note:', err);
@@ -469,7 +490,7 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
         <h1 className="text-2xl font-bold">
           {creditNoteId ? 'Modifier l\'avoir' : 'Nouvel avoir'}
         </h1>
-        <div>
+        <div className="flex gap-2">
           <button
             type="button"
             onClick={handleSubmit}
@@ -478,6 +499,16 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
           >
             <Save size={18} />
             {isLoading ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setViewAfterSave(true); handleSubmit(new Event('submit') as any); }}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
+            disabled={isLoading}
+            title="Enregistrer puis ouvrir la visualisation"
+          >
+            <Save size={18} />
+            {isLoading ? 'Ouverture…' : 'Enregistrer et visualiser'}
           </button>
         </div>
       </div>
@@ -926,7 +957,7 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
           </div>
         </div>
         {/* Bouton d'action en bas */}
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"
             onClick={handleSubmit}
@@ -935,6 +966,16 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
           >
             <Save size={18} />
             {isLoading ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setViewAfterSave(true); handleSubmit(new Event('submit') as any); }}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
+            disabled={isLoading}
+            title="Enregistrer puis ouvrir la visualisation"
+          >
+            <Save size={18} />
+            {isLoading ? 'Ouverture…' : 'Enregistrer et visualiser'}
           </button>
         </div>
       </form>
