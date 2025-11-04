@@ -10,11 +10,13 @@ import {
   Copy, 
   Printer,
   CreditCard,
-  FileOutput
+  FileOutput,
+  X
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { InvoiceStatus, InvoiceWithDetails, Payment } from '../../types/billing';
 import { EmailSender } from './EmailSender';
+import { useAppSettingsStore } from '../../store/appSettingsStore';
 
 interface InvoiceDetailProps {
   invoiceId: string;
@@ -62,6 +64,10 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ invoiceId, onBack 
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const invoiceRef = useRef<HTMLDivElement>(null);
+  const { settings, fetchSettings } = useAppSettingsStore();
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
   
   useEffect(() => {
     console.log('InvoiceDetail component mounted, fetching invoice...');
@@ -266,12 +272,20 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ invoiceId, onBack 
             )}
           </div>
           <div className="text-right">
-            <h3 className="font-bold text-lg">Votre Entreprise</h3>
-            <p>123 Rue Exemple</p>
-            <p>75000 Paris</p>
-            <p>France</p>
-            <p>contact@example.com</p>
-            <p>01 23 45 67 89</p>
+            {settings?.logo_url && (
+              <img
+                src={settings.logo_url}
+                alt="Logo"
+                className="max-h-16 ml-auto mb-2 object-contain"
+              />
+            )}
+            <h3 className="font-bold text-lg">{settings?.company_name || 'Votre Entreprise'}</h3>
+            <p>{settings?.address_line1 || '123 Rue Exemple'}</p>
+            {settings?.address_line2 && <p>{settings.address_line2}</p>}
+            <p>{(settings?.zip || '75000')} {(settings?.city || 'Paris')}</p>
+            <p>{settings?.country || 'France'}</p>
+            {settings?.email && <p>{settings.email}</p>}
+            {settings?.phone && <p>{settings.phone}</p>}
           </div>
         </div>
         
@@ -383,6 +397,29 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ invoiceId, onBack 
           </div>
         </div>
         
+        {(settings?.bank_name || settings?.bank_iban || settings?.bank_bic) && (
+          <div className="mb-8">
+            <h3 className="font-bold text-gray-800 mb-2">Coordonnées bancaires</h3>
+            <div className="border-t border-gray-200 pt-2 text-sm text-gray-700 space-y-1">
+              {settings?.bank_name && (
+                <p>
+                  <span className="font-medium">Banque:</span> {settings.bank_name}
+                </p>
+              )}
+              {settings?.bank_iban && (
+                <p>
+                  <span className="font-medium">IBAN:</span> {settings.bank_iban}
+                </p>
+              )}
+              {settings?.bank_bic && (
+                <p>
+                  <span className="font-medium">BIC:</span> {settings.bank_bic}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Payments */}
         {payments.length > 0 && (
           <div className="mb-8">
@@ -444,8 +481,19 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ invoiceId, onBack 
         
         {/* Footer */}
         <div className="text-center text-gray-500 text-sm mt-8 pt-8 border-t">
-          <p>Merci pour votre confiance. Tous les prix sont en euros.</p>
-          <p>Conditions générales de vente : Les produits restent la propriété de la société jusqu'au paiement intégral.</p>
+          {settings?.footer_text ? (
+            <p className="mb-2 whitespace-pre-line">{settings.footer_text}</p>
+          ) : (
+            <p>Merci pour votre confiance. Tous les prix sont en euros.</p>
+          )}
+          {settings?.terms_and_conditions ? (
+            <p className="whitespace-pre-line">{settings.terms_and_conditions}</p>
+          ) : (
+            <p>
+              Conditions générales de vente : Les produits restent la propriété de la société
+              jusqu'au paiement intégral.
+            </p>
+          )}
         </div>
       </div>
       

@@ -8,7 +8,9 @@ export const InvoiceSettings: React.FC = () => {
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [footerText, setFooterText] = useState('');
   const [termsAndConditions, setTermsAndConditions] = useState('');
-  const [bankInfo, setBankInfo] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [bankIban, setBankIban] = useState('');
+  const [bankBic, setBankBic] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ field: string; success: boolean } | null>(null);
   
@@ -24,7 +26,9 @@ export const InvoiceSettings: React.FC = () => {
       setLogoPreview(settings.logo_url || null);
       setFooterText(settings.footer_text || '');
       setTermsAndConditions(settings.terms_and_conditions || '');
-      setBankInfo(settings.bank_info || '');
+      setBankName(settings.bank_name || '');
+      setBankIban(settings.bank_iban || '');
+      setBankBic(settings.bank_bic || '');
     }
   }, [settings]);
   
@@ -105,7 +109,11 @@ export const InvoiceSettings: React.FC = () => {
     clearError();
     
     try {
-      await updateSettings('bank_info', bankInfo);
+      await updateSettings({
+        bank_name: bankName || null,
+        bank_iban: bankIban || null,
+        bank_bic: bankBic || null
+      });
       
       // Show success status
       setSaveStatus({ field: 'bank', success: true });
@@ -304,14 +312,37 @@ export const InvoiceSettings: React.FC = () => {
               Ces informations apparaîtront sur vos factures pour faciliter les paiements par virement.
             </p>
             
-            <div className="mb-4">
-              <textarea
-                value={bankInfo}
-                onChange={(e) => setBankInfo(e.target.value)}
-                rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Exemple: IBAN: FR76 XXXX XXXX XXXX XXXX XXXX XXX&#10;BIC: XXXXXXXX&#10;Banque: Exemple Banque"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Banque</label>
+                <input
+                  type="text"
+                  value={bankName}
+                  onChange={(e) => setBankName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Exemple Banque"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">IBAN</label>
+                <input
+                  type="text"
+                  value={bankIban}
+                  onChange={(e) => setBankIban(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="FR76 XXXX XXXX XXXX XXXX XXXX XXX"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">BIC</label>
+                <input
+                  type="text"
+                  value={bankBic}
+                  onChange={(e) => setBankBic(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="XXXXXXXX"
+                />
+              </div>
             </div>
             
             <div className="flex justify-end">
@@ -363,11 +394,13 @@ export const InvoiceSettings: React.FC = () => {
               </div>
               
               {/* Bank Info Preview */}
-              {bankInfo && (
+              {(bankName || bankIban || bankBic) && (
                 <div className="mb-8">
                   <h3 className="font-bold text-gray-800 mb-2">Coordonnées bancaires</h3>
-                  <div className="border-t border-gray-200 pt-2">
-                    <pre className="whitespace-pre-line font-sans">{bankInfo}</pre>
+                  <div className="border-t border-gray-200 pt-2 text-sm text-gray-700 space-y-1">
+                    {bankName && <p><span className="font-medium">Banque:</span> {bankName}</p>}
+                    {bankIban && <p><span className="font-medium">IBAN:</span> {bankIban}</p>}
+                    {bankBic && <p><span className="font-medium">BIC:</span> {bankBic}</p>}
                   </div>
                 </div>
               )}

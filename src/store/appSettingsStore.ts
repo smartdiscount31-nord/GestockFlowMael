@@ -1,47 +1,69 @@
 /**
- * App Settings Store
- * Zustand store for managing application settings
+ * App Settings Store (company settings)
+ * Persists and reads settings from Supabase table: company_settings
  */
 
 import { create } from 'zustand';
+import { supabase } from '../lib/supabase';
 
-interface AppSettings {
+export interface CompanySettings {
+  id?: string;
   company_name: string;
-  company_address: string;
-  company_phone: string;
-  company_email: string;
-  company_siret: string;
-  company_vat_number: string;
-  invoice_prefix: string;
-  invoice_next_number: number;
-  quote_prefix: string;
-  quote_next_number: number;
-  default_tax_rate: number;
-  currency: string;
-  logo_url?: string;
+  address_line1: string;
+  address_line2?: string | null;
+  zip: string;
+  city: string;
+  country: string;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  siret?: string | null;
+  vat_number?: string | null;
+  logo_url?: string | null;
+  // Footer and Terms
+  footer_text?: string | null;
+  terms_and_conditions?: string | null;
+  // Bank information (split fields)
+  bank_name?: string | null;
+  bank_iban?: string | null;
+  bank_bic?: string | null;
 }
 
 interface AppSettingsStore {
-  settings: AppSettings | null;
+  settings: CompanySettings | null;
   isLoading: boolean;
   error: string | null;
+
   fetchSettings: () => Promise<void>;
-  updateSettings: (settings: Partial<AppSettings>) => Promise<void>;
+
+  // Overloaded updateSettings:
+  // - updateSettings(partial)
+  // - updateSettings('field', value)
+  updateSettings: ((partial: Partial<CompanySettings>) => Promise<void>) &
+                  ((key: keyof CompanySettings, value: any) => Promise<void>);
+
+  uploadLogo: (file: File) => Promise<void>;
+  clearError: () => void;
 }
 
-const defaultSettings: AppSettings = {
+const defaultSettings: CompanySettings = {
   company_name: '',
-  company_address: '',
-  company_phone: '',
-  company_email: '',
-  company_siret: '',
-  company_vat_number: '',
-  invoice_prefix: 'INV',
-  invoice_next_number: 1,
-  quote_prefix: 'DEV',
-  quote_next_number: 1,
-  default_tax_rate: 20,
-  currency: 'EUR',
+  address_line1: '',
+  address_line2: null,
+  zip: '',
+  city: '',
+  country: 'France',
+  phone: null,
+  email: null,
+  website: null,
+  siret: null,
+  vat_number: null,
+  logo_url: null,
+  footer_text: null,
+  terms_and_conditions: null,
+  bank_name: null,
+  bank_iban: null,
+  bank_bic: null,
 };
 
 export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
@@ -50,38 +72,110 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
   error: null,
 
   fetchSettings: async () => {
-    console.log('[AppSettingsStore] Fetching app settings');
     set({ isLoading: true, error: null });
-
     try {
-      // TODO: Implement actual fetching from Supabase
-      set({ settings: defaultSettings, isLoading: false });
-    } catch (error) {
-      console.error('[AppSettingsStore] Error fetching settings:', error);
+      // Try to fetch a single row
+      let { data, error } = await supabase
+        .from('company_settings')
+        .select('*')
+        .limit(1)
+        .single();
+
+      // If table empty, insert a default row
+      if (error) {
+        // Some clients return error code when 0 rows; attempt insert
+        const { data: inserted, error: insertError } = await supabase
+          .from('company_settings')
+          .insert([defaultSettings])
+          .select('*')
+          .single();
+
+        if (insertError) throw insertError;
+        data = inserted;
+      }
+
+      set({ settings: data as CompanySettings, isLoading: false });
+    } catch (err: any) {
+      console.error('[AppSettingsStore] Error fetching settings:', err);
       set({
-        error: error instanceof Error ? error.message : 'Erreur lors de la récupération des paramètres',
+        error: err instanceof Error ? err.message : 'Erreur lors de la récupération des paramètres',
         isLoading: false,
       });
     }
   },
 
-  updateSettings: async (settings) => {
-    console.log('[AppSettingsStore] Updating settings:', settings);
+  updateSettings: (async (arg1: any, value?: any) => {
     set({ isLoading: true, error: null });
-
     try {
-      // TODO: Implement actual update in Supabase
-      const currentSettings = get().settings || defaultSettings;
-      const updatedSettings = { ...currentSettings, ...settings };
+      const current = get().settings;
+      if (!current) {
+        await get().fetchSettings();
+      }
+      const settings = get().settings;
 
-      set({ settings: updatedSettings, isLoading: false });
-      console.log('[AppSettingsStore] Settings updated successfully');
-    } catch (error) {
-      console.error('[AppSettingsStore] Error updating settings:', error);
+      const patch: Partial<CompanySettings> =
+        typeof arg1 === 'string' ? { [arg1]: value } as any : (arg1 || {});
+
+      if (!settings?.id) {
+        // No id yet? create one row first
+        const { data: created, error: createError } = await supabase
+          .from('company_settings')
+          .insert([ { ...defaultSettings, ...patch } ])
+          .select('*')
+          .single();
+        if (createError) throw createError;
+        set({ settings: created as CompanySettings, isLoading: false });
+        return;
+      }
+
+      const { data: updated, error: updateError } = await supabase
+        .from('company_settings')
+        .update(patch)
+        .eq('id', settings.id)
+        .select('*')
+        .single();
+
+      if (updateError) throw updateError;
+      set({ settings: updated as CompanySettings, isLoading: false });
+    } catch (err: any) {
+      console.error('[AppSettingsStore] Error updating settings:', err);
       set({
-        error: error instanceof Error ? error.message : 'Erreur lors de la mise à jour des paramètres',
+        error: err instanceof Error ? err.message : 'Erreur lors de la mise à jour des paramètres',
         isLoading: false,
       });
     }
+  }) as any,
+
+  uploadLogo: async (file: File) => {
+    set({ isLoading: true, error: null });
+    try {
+      // Ensure settings row exists
+      if (!get().settings) {
+        await get().fetchSettings();
+      }
+      const path = `logos/company-logo-${Date.now()}-${file.name}`;
+      const { error: uploadError } = await supabase
+        .storage
+        .from('assets')
+        .upload(path, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: pub } = supabase.storage.from('assets').getPublicUrl(path);
+      const publicUrl = pub?.publicUrl || null;
+      if (!publicUrl) throw new Error('Impossible de générer l’URL publique du logo');
+
+      await get().updateSettings('logo_url', publicUrl);
+      set({ isLoading: false });
+    } catch (err: any) {
+      console.error('[AppSettingsStore] Error uploading logo:', err);
+      set({
+        error: err instanceof Error ? err.message : 'Erreur lors de l’upload du logo',
+        isLoading: false,
+      });
+      throw err;
+    }
   },
+
+  clearError: () => set({ error: null }),
 }));

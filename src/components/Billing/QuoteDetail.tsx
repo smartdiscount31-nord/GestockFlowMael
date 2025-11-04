@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { QuoteStatus } from '../../types/billing';
 import { EmailSender } from './EmailSender';
+import { useAppSettingsStore } from '../../store/appSettingsStore';
 
 interface QuoteDetailProps {
   quoteId: string;
@@ -55,11 +56,16 @@ export const QuoteDetail: React.FC<QuoteDetailProps> = ({ quoteId, onBack }) => 
   const { currentQuote, isLoading, error, getQuoteById, sendQuote, acceptQuote, refuseQuote } = useQuoteStore();
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const quoteRef = useRef<HTMLDivElement>(null);
+  const { settings, fetchSettings } = useAppSettingsStore();
   
   useEffect(() => {
     console.log('QuoteDetail component mounted, fetching quote...');
     getQuoteById(quoteId);
   }, [quoteId, getQuoteById]);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
   
   const handleSendQuote = async () => {
     if (currentQuote?.status === 'draft') {
@@ -230,12 +236,20 @@ export const QuoteDetail: React.FC<QuoteDetailProps> = ({ quoteId, onBack }) => 
             <p className="text-gray-600">Validité: {formatDate(currentQuote.date_expiry)}</p>
           </div>
           <div className="text-right">
-            <h3 className="font-bold text-lg">Votre Entreprise</h3>
-            <p>123 Rue Exemple</p>
-            <p>75000 Paris</p>
-            <p>France</p>
-            <p>contact@example.com</p>
-            <p>01 23 45 67 89</p>
+            {settings?.logo_url && (
+              <img
+                src={settings.logo_url}
+                alt="Logo"
+                className="max-h-16 ml-auto mb-2 object-contain"
+              />
+            )}
+            <h3 className="font-bold text-lg">{settings?.company_name || 'Votre Entreprise'}</h3>
+            <p>{settings?.address_line1 || '123 Rue Exemple'}</p>
+            {settings?.address_line2 && <p>{settings.address_line2}</p>}
+            <p>{(settings?.zip || '75000')} {(settings?.city || 'Paris')}</p>
+            <p>{settings?.country || 'France'}</p>
+            {settings?.email && <p>{settings.email}</p>}
+            {settings?.phone && <p>{settings.phone}</p>}
           </div>
         </div>
         
@@ -347,8 +361,19 @@ export const QuoteDetail: React.FC<QuoteDetailProps> = ({ quoteId, onBack }) => 
         
         {/* Footer */}
         <div className="text-center text-gray-500 text-sm mt-8 pt-8 border-t">
-          <p>Merci pour votre confiance. Tous les prix sont en euros.</p>
-          <p>Conditions générales de vente : Les produits restent la propriété de la société jusqu'au paiement intégral.</p>
+          {settings?.footer_text ? (
+            <p className="mb-2 whitespace-pre-line">{settings.footer_text}</p>
+          ) : (
+            <p>Merci pour votre confiance. Tous les prix sont en euros.</p>
+          )}
+          {settings?.terms_and_conditions ? (
+            <p className="whitespace-pre-line">{settings.terms_and_conditions}</p>
+          ) : (
+            <p>
+              Conditions générales de vente : Les produits restent la propriété de la société
+              jusqu'au paiement intégral.
+            </p>
+          )}
         </div>
       </div>
       

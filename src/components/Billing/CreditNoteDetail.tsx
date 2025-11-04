@@ -9,11 +9,13 @@ import {
   Download, 
   Copy, 
   Printer,
-  FileOutput
+  FileOutput,
+  CheckCircle
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { CreditNoteStatus, CreditNoteWithDetails } from '../../types/billing';
 import { EmailSender } from './EmailSender';
+import { useAppSettingsStore } from '../../store/appSettingsStore';
 
 interface CreditNoteDetailProps {
   creditNoteId: string;
@@ -55,6 +57,10 @@ export const CreditNoteDetail: React.FC<CreditNoteDetailProps> = ({ creditNoteId
   const [error, setError] = useState<string | null>(null);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const creditNoteRef = useRef<HTMLDivElement>(null);
+  const { settings, fetchSettings } = useAppSettingsStore();
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
   
   useEffect(() => {
     console.log('CreditNoteDetail component mounted, fetching credit note...');
@@ -272,12 +278,20 @@ export const CreditNoteDetail: React.FC<CreditNoteDetailProps> = ({ creditNoteId
             )}
           </div>
           <div className="text-right">
-            <h3 className="font-bold text-lg">Votre Entreprise</h3>
-            <p>123 Rue Exemple</p>
-            <p>75000 Paris</p>
-            <p>France</p>
-            <p>contact@example.com</p>
-            <p>01 23 45 67 89</p>
+            {settings?.logo_url && (
+              <img
+                src={settings.logo_url}
+                alt="Logo"
+                className="max-h-16 ml-auto mb-2 object-contain"
+              />
+            )}
+            <h3 className="font-bold text-lg">{settings?.company_name || 'Votre Entreprise'}</h3>
+            <p>{settings?.address_line1 || '123 Rue Exemple'}</p>
+            {settings?.address_line2 && <p>{settings.address_line2}</p>}
+            <p>{(settings?.zip || '75000')} {(settings?.city || 'Paris')}</p>
+            <p>{settings?.country || 'France'}</p>
+            {settings?.email && <p>{settings.email}</p>}
+            {settings?.phone && <p>{settings.phone}</p>}
           </div>
         </div>
         
@@ -356,8 +370,19 @@ export const CreditNoteDetail: React.FC<CreditNoteDetailProps> = ({ creditNoteId
         
         {/* Footer */}
         <div className="text-center text-gray-500 text-sm mt-8 pt-8 border-t">
-          <p>Merci pour votre confiance. Tous les prix sont en euros.</p>
-          <p>Conditions générales de vente : Les produits restent la propriété de la société jusqu'au paiement intégral.</p>
+          {settings?.footer_text ? (
+            <p className="mb-2 whitespace-pre-line">{settings.footer_text}</p>
+          ) : (
+            <p>Merci pour votre confiance. Tous les prix sont en euros.</p>
+          )}
+          {settings?.terms_and_conditions ? (
+            <p className="whitespace-pre-line">{settings.terms_and_conditions}</p>
+          ) : (
+            <p>
+              Conditions générales de vente : Les produits restent la propriété de la société
+              jusqu'au paiement intégral.
+            </p>
+          )}
         </div>
       </div>
       
