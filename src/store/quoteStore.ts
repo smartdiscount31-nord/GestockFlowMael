@@ -12,6 +12,7 @@
 
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
+import { DocumentType } from '../types/billing';
 
 export interface QuoteStore {
   quotes: any[];
@@ -189,3 +190,23 @@ export const useQuoteStore = create<QuoteStore>((set, get) => ({
     }
   },
 }));
+
+/**
+ * Get document types for quotes (used by QuoteList)
+ */
+export async function getDocumentTypes(): Promise<DocumentType[]> {
+  console.log('[QuoteStore] Getting document types');
+  try {
+    const { data, error } = await supabase
+      .from('billing_document_types')
+      .select('*')
+      .eq('is_active', true)
+      .order('label', { ascending: true });
+
+    if (error) throw error;
+    return (data || []) as DocumentType[];
+  } catch (error) {
+    console.error('[QuoteStore] Error getting document types:', error);
+    return [];
+  }
+}
