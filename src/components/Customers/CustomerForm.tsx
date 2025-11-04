@@ -13,10 +13,11 @@ interface CustomerFormProps {
 }
 
 export function CustomerForm({ customer, onSave, onCancel }: CustomerFormProps) {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<any>({
     name: customer?.name || '',
     email: customer?.email || '',
     phone: customer?.phone || '',
+    customer_group: (customer as any)?.customer_group || 'particulier',
     address: customer?.address || '',
   });
 
@@ -26,13 +27,13 @@ export function CustomerForm({ customer, onSave, onCancel }: CustomerFormProps) 
     e.preventDefault();
     console.log('[CustomerForm] Submitting:', formData);
     if (onSave) {
-      onSave(formData);
+      onSave(formData as any);
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev: any) => ({ ...prev, [name]: value }));
   };
 
   return (
@@ -83,6 +84,23 @@ export function CustomerForm({ customer, onSave, onCancel }: CustomerFormProps) 
             onChange={handleChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </div>
+
+        <div>
+          <label htmlFor="customer_group" className="block text-sm font-medium text-gray-700 mb-1">
+            Groupe *
+          </label>
+          <select
+            id="customer_group"
+            name="customer_group"
+            value={formData.customer_group}
+            onChange={handleChange}
+            required
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="particulier">Particulier</option>
+            <option value="pro">Professionnel</option>
+          </select>
         </div>
 
         <div>
