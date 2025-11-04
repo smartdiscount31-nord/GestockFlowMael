@@ -270,7 +270,8 @@ export async function getDocumentTypes() {
     const { data, error } = await supabase
       .from('billing_document_types')
       .select('*')
-      .order('document_type', { ascending: true });
+      .eq('is_active', true)
+      .order('label', { ascending: true });
     if (error) throw error;
     return data || [];
   } catch (error) {
