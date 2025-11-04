@@ -10,6 +10,7 @@
 
 import React, { useRef } from 'react';
 import Papa from 'papaparse';
+import type { ParseResult } from 'papaparse';
 import type { Customer } from '../../types/supabase';
 import { supabase } from '../../lib/supabase';
 import { useCSVImport } from '../../hooks/useCSVImport';
@@ -55,11 +56,28 @@ export function CustomerList({ customers = [], onNew, onEdit, onView }: Customer
     e.currentTarget.value = '';
     if (!file) return;
 
+    // Détection du séparateur (prend en charge , ; ou tab) et forçage des guillemets
+    const head = await file.slice(0, 2048).text();
+    const counts = {
+      ',': (head.match(/,/g) || []).length,
+      ';': (head.match(/;/g) || []).length,
+      '\t': (head.match(/\t/g) || []).length,
+    };
+    let delimiter: ',' | ';' | '\t' = ',';
+    if (counts[';'] >= counts[','] && counts[';'] >= counts['\t']) {
+      delimiter = ';';
+    } else if (counts['\t'] >= counts[','] && counts['\t'] >= counts[';']) {
+      delimiter = '\t';
+    }
+
     Papa.parse<CsvRow>(file, {
       header: true,
       skipEmptyLines: 'greedy',
-      complete: async (results) => {
-        const rows = (results.data || []).filter((r) => Object.keys(r || {}).length > 0);
+      delimiter,
+      quoteChar: '"',
+      escapeChar: '"',
+      complete: async (results: ParseResult<CsvRow>) => {
+        const rows: CsvRow[] = ((results.data as CsvRow[]) || []).filter((r: CsvRow) => Object.keys(r || {}).length > 0);
         if (rows.length === 0) {
           setImportError([{ line: 0, message: 'Fichier vide ou en-têtes introuvables.' }]);
           return;
@@ -72,7 +90,7 @@ export function CustomerList({ customers = [], onNew, onEdit, onView }: Customer
 
         for (let i = 0; i < rows.length; i++) {
           const lineNo = i + 2; // 1 header + 1-based
-          const r = rows[i] || {};
+          const r: CsvRow = rows[i] || {};
 
           try {
             // Extract client
@@ -180,8 +198,8 @@ export function CustomerList({ customers = [], onNew, onEdit, onView }: Customer
           setImportSuccess(`Import terminé (${processed} clients).`);
         }
       },
-      error: (err) => {
-        setImportError([{ line: 0, message: `Erreur de parsing CSV: ${err?.message || String(err)}` }]);
+      error: (error: any, _file: any) => {
+        setImportError([{ line: 0, message: `Erreur de parsing CSV: ${error?.message || String(error)}` }]);
       },
     });
   };
