@@ -32,6 +32,7 @@ import { Customers } from './pages/Customers';
 // Import des composants de paramètres
 import { MailSettingsPage } from './components/Billing/MailSettingsPage';
 import { InvoiceSettings } from './components/Billing/InvoiceSettings';
+import { CreditNoteSettings } from './components/Billing/CreditNoteSettings';
 import { RepairCalculator } from './pages/RepairCalculator';
 import { PriseEnCharge } from './pages/PriseEnCharge';
 import { supabase } from './lib/supabase';
@@ -116,7 +117,7 @@ function App() {
       'select-type','add-product','add-product-pam','add-product-multiple',
       'customers','consignments','agenda',
       // Settings / tools / marketplace
-      'mail-settings','invoice-settings','settings-ebay','settings-users',
+      'mail-settings','invoice-settings','credit-note-settings','settings-ebay','settings-users',
       'marketplace-pricing','repair-calculator','atelier-prise-en-charge','mobile-actions','fiche-magasin','reports-sales','refunds'
     ]);
 
@@ -685,6 +686,8 @@ function App() {
           return can('accessSettings', userRole) ? <MailSettingsPage /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
         case 'invoice-settings':
           return can('accessSettings', userRole) ? <InvoiceSettings /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
+        case 'credit-note-settings':
+          return can('accessSettings', userRole) ? <CreditNoteSettings /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
         case 'reports-sales':
           return <SalesSummary />;
         case 'refunds':
@@ -1417,6 +1420,13 @@ function App() {
                   className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
                 >
                   Réglages Facture
+                </a>
+                <a
+                  href="#"
+                  onClick={() => setCurrentPage('credit-note-settings')}
+                  className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
+                >
+                  Réglages Avoir
                 </a>
                 <a
                   href="#"

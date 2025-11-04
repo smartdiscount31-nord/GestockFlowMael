@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Eye, Edit, Trash2, Send, FileText, Plus, Search, RefreshCw, CreditCard } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { InvoiceStatus, InvoiceWithDetails, DocumentType } from '../../types/billing';
+import { InvoiceStatus, InvoiceWithDetails, DocumentType, VatRegime, VAT_REGIME_CONFIGS } from '../../types/billing';
 import { getDocumentTypes } from '../../store/invoiceStore';
 
 // Status badge component
@@ -33,6 +33,38 @@ const StatusBadge: React.FC<{ status: InvoiceStatus }> = ({ status }) => {
   return (
     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor()}`}>
       {getStatusText()}
+    </span>
+  );
+};
+
+// VAT regime badge component
+const VatRegimeBadge: React.FC<{ regime: VatRegime }> = ({ regime }) => {
+  const config = VAT_REGIME_CONFIGS[regime];
+
+  const getRegimeColor = () => {
+    switch (regime) {
+      case 'normal': return 'bg-blue-100 text-blue-800';
+      case 'margin': return 'bg-purple-100 text-purple-800';
+      case 'export': return 'bg-green-100 text-green-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getRegimeShortLabel = () => {
+    switch (regime) {
+      case 'normal': return 'TVA';
+      case 'margin': return 'Marge';
+      case 'export': return 'Export';
+      default: return regime;
+    }
+  };
+
+  return (
+    <span
+      className={`px-2 py-1 rounded-full text-xs font-medium ${getRegimeColor()}`}
+      title={config.description}
+    >
+      {getRegimeShortLabel()}
     </span>
   );
 };
@@ -265,7 +297,12 @@ export const InvoiceList: React.FC = () => {
                         {formatCurrency(invoice.amount_paid || 0)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <StatusBadge status={invoice.status as InvoiceStatus} />
+                        <div className="flex flex-col gap-1">
+                          <StatusBadge status={invoice.status as InvoiceStatus} />
+                          {invoice.vat_regime && (
+                            <VatRegimeBadge regime={invoice.vat_regime as VatRegime} />
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div className="flex justify-end space-x-2">

@@ -37,13 +37,57 @@ export type OrderItem = AnyRecord;
 export type OrderItemInsert = AnyRecord;
 export type OrderItemUpdate = AnyRecord;
 
+// VAT Regime Types
+export type VatRegime = 'normal' | 'margin' | 'export';
+
+// VAT Regime Configuration
+export interface VatRegimeConfig {
+  value: VatRegime;
+  label: string;
+  description: string;
+  legalMention: string;
+  showVatColumn: boolean;
+  calculateVat: boolean;
+}
+
+export const VAT_REGIME_CONFIGS: Record<VatRegime, VatRegimeConfig> = {
+  normal: {
+    value: 'normal',
+    label: 'TVA normale (TTC)',
+    description: 'Articles soumis à TVA classique (prix HT + TVA visible)',
+    legalMention: 'Total TVA – 20 %',
+    showVatColumn: true,
+    calculateVat: true
+  },
+  margin: {
+    value: 'margin',
+    label: 'TVA sur marge',
+    description: 'TVA calculée uniquement sur marge (pas affichée ligne par ligne)',
+    legalMention: 'TVA non applicable – Régime particulier des biens d\'occasion',
+    showVatColumn: false,
+    calculateVat: false
+  },
+  export: {
+    value: 'export',
+    label: 'Sans TVA (exonéré / export)',
+    description: 'Export hors UE ou exonéré, prix TTC = HT, aucune TVA calculée',
+    legalMention: 'Exonération de TVA, article 262 ter, I du CGI',
+    showVatColumn: false,
+    calculateVat: false
+  }
+};
+
 // Invoices
 export interface Invoice extends AnyRecord {
   id?: string;
   document_type_id?: string | null;
+  vat_regime?: VatRegime;
+  legal_mention?: string | null;
 }
 export interface InvoiceInsert extends AnyRecord {
   document_type_id?: string | null; // Required at UI level; optional in TS for backward compat
+  vat_regime?: VatRegime;
+  legal_mention?: string | null;
 }
 export type InvoiceUpdate = AnyRecord;
 

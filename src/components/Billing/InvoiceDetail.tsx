@@ -14,7 +14,7 @@ import {
   X
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { InvoiceStatus, InvoiceWithDetails, Payment } from '../../types/billing';
+import { InvoiceStatus, InvoiceWithDetails, Payment, VatRegime, VAT_REGIME_CONFIGS } from '../../types/billing';
 import { EmailSender } from './EmailSender';
 import { useAppSettingsStore } from '../../store/appSettingsStore';
 
@@ -272,9 +272,6 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ invoiceId, onBack 
           <div>
             <h2 className="text-2xl font-bold text-gray-800">FACTURE</h2>
             <p className="text-gray-600">N° {invoice.invoice_number}</p>
-            {invoice.document_type && (
-              <p className="text-gray-600">Type: <span className="font-medium">{invoice.document_type.label}</span></p>
-            )}
             <p className="text-gray-600">Date: {formatDate(invoice.date_issued)}</p>
             <p className="text-gray-600">Échéance: {formatDate(invoice.date_due)}</p>
             {invoice.order && (
@@ -336,77 +333,121 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ invoiceId, onBack 
         
         {/* Items Table */}
         <div className="mb-8">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Description
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Quantité
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Prix unitaire HT
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  TVA
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total HT
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {invoice.items?.map((item, index) => (
-                <tr key={item.id || index}>
-                  <td className="px-6 py-4 whitespace-normal text-sm text-gray-900">
-                    {item.description}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                    {item.quantity}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                    {formatCurrency(item.unit_price)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                    {item.tax_rate}%
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                    {formatCurrency(item.total_price)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {(() => {
+            const vatRegime = (invoice.vat_regime as VatRegime) || 'normal';
+            const config = VAT_REGIME_CONFIGS[vatRegime];
+
+            return (
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Description
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Quantité
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {vatRegime === 'margin' ? 'Prix unitaire' : 'Prix unitaire HT'}
+                    </th>
+                    {config.showVatColumn && (
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        TVA
+                      </th>
+                    )}
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {vatRegime === 'normal' ? 'Total HT' : 'Total'}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {invoice.items?.map((item, index) => (
+                    <tr key={item.id || index}>
+                      <td className="px-6 py-4 whitespace-normal text-sm text-gray-900">
+                        {item.description}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {item.quantity}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {formatCurrency(item.unit_price)}
+                      </td>
+                      {config.showVatColumn && (
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                          {item.tax_rate}%
+                        </td>
+                      )}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {formatCurrency(item.total_price)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
         </div>
         
         {/* Totals */}
         <div className="flex justify-end mb-8">
           <div className="w-64">
-            <div className="flex justify-between py-2 border-b">
-              <span className="font-medium">Total HT:</span>
-              <span>{formatCurrency(invoice.total_ht)}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b">
-              <span className="font-medium">TVA:</span>
-              <span>{formatCurrency(invoice.tva)}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b font-bold text-lg">
-              <span>Total TTC:</span>
-              <span>{formatCurrency(invoice.total_ttc)}</span>
-            </div>
-            {invoice.amount_paid > 0 && (
-              <>
-                <div className="flex justify-between py-2 border-b text-green-600">
-                  <span className="font-medium">Montant payé:</span>
-                  <span>{formatCurrency(invoice.amount_paid)}</span>
-                </div>
-                <div className="flex justify-between py-2 font-bold text-lg">
-                  <span>Reste à payer:</span>
-                  <span>{formatCurrency(Math.max(0, invoice.total_ttc - invoice.amount_paid))}</span>
-                </div>
-              </>
-            )}
+            {(() => {
+              const vatRegime = (invoice.vat_regime as VatRegime) || 'normal';
+              const config = VAT_REGIME_CONFIGS[vatRegime];
+
+              return (
+                <>
+                  {/* Mention légale */}
+                  {invoice.legal_mention && (
+                    <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                      <strong>Mention:</strong> {invoice.legal_mention}
+                    </div>
+                  )}
+
+                  {/* Totaux selon le régime */}
+                  {config.showVatColumn ? (
+                    <>
+                      {/* TVA normale : afficher HT, TVA, TTC */}
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="font-medium">Total HT:</span>
+                        <span>{formatCurrency(invoice.total_ht)}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b">
+                        <span className="font-medium">TVA:</span>
+                        <span>{formatCurrency(invoice.tva)}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b font-bold text-lg">
+                        <span>Total TTC:</span>
+                        <span>{formatCurrency(invoice.total_ttc)}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* TVA sur marge ou export : afficher uniquement le total */}
+                      <div className="flex justify-between py-2 border-b font-bold text-lg">
+                        <span>
+                          {vatRegime === 'margin' ? 'Total TTC (TVA incluse):' : 'Total (sans TVA):'}
+                        </span>
+                        <span>{formatCurrency(invoice.total_ttc)}</span>
+                      </div>
+                    </>
+                  )}
+
+                  {invoice.amount_paid > 0 && (
+                    <>
+                      <div className="flex justify-between py-2 border-b text-green-600">
+                        <span className="font-medium">Montant payé:</span>
+                        <span>{formatCurrency(invoice.amount_paid)}</span>
+                      </div>
+                      <div className="flex justify-between py-2 font-bold text-lg">
+                        <span>Reste à payer:</span>
+                        <span>{formatCurrency(Math.max(0, invoice.total_ttc - invoice.amount_paid))}</span>
+                      </div>
+                    </>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
         

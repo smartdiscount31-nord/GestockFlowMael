@@ -229,9 +229,6 @@ export const QuoteDetail: React.FC<QuoteDetailProps> = ({ quoteId, onBack }) => 
           <div>
             <h2 className="text-2xl font-bold text-gray-800">DEVIS</h2>
             <p className="text-gray-600">N° {currentQuote.quote_number}</p>
-            {currentQuote.document_type && (
-              <p className="text-gray-600">Type: <span className="font-medium">{currentQuote.document_type.label}</span></p>
-            )}
             <p className="text-gray-600">Date: {formatDate(currentQuote.date_issued)}</p>
             <p className="text-gray-600">Validité: {formatDate(currentQuote.date_expiry)}</p>
           </div>

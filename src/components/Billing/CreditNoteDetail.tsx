@@ -261,9 +261,6 @@ export const CreditNoteDetail: React.FC<CreditNoteDetailProps> = ({ creditNoteId
           <div>
             <h2 className="text-2xl font-bold text-gray-800">AVOIR</h2>
             <p className="text-gray-600">N° {creditNote.credit_note_number}</p>
-            {creditNote.document_type && (
-              <p className="text-gray-600">Type: <span className="font-medium">{creditNote.document_type.label}</span></p>
-            )}
             <p className="text-gray-600">Date: {formatDate(creditNote.date_issued)}</p>
             {invoice && (
               <p className="text-gray-600">
@@ -370,13 +367,13 @@ export const CreditNoteDetail: React.FC<CreditNoteDetailProps> = ({ creditNoteId
         
         {/* Footer */}
         <div className="text-center text-gray-500 text-sm mt-8 pt-8 border-t">
-          {settings?.footer_text ? (
-            <p className="mb-2 whitespace-pre-line">{settings.footer_text}</p>
+          {(settings?.credit_note_footer_text || settings?.footer_text) ? (
+            <p className="mb-2 whitespace-pre-line">{settings.credit_note_footer_text || settings.footer_text}</p>
           ) : (
             <p>Merci pour votre confiance. Tous les prix sont en euros.</p>
           )}
-          {settings?.terms_and_conditions ? (
-            <p className="whitespace-pre-line">{settings.terms_and_conditions}</p>
+          {(settings?.credit_note_terms || settings?.terms_and_conditions) ? (
+            <p className="whitespace-pre-line">{settings.credit_note_terms || settings.terms_and_conditions}</p>
           ) : (
             <p>
               Conditions générales de vente : Les produits restent la propriété de la société

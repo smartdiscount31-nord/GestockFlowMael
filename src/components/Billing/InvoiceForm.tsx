@@ -22,7 +22,9 @@ import {
   Address,
   InvoiceStatus,
   DocumentItem,
-  DocumentType
+  DocumentType,
+  VatRegime,
+  VAT_REGIME_CONFIGS
 } from '../../types/billing';
 import { ProductWithStock } from '../../types/supabase';
 import { supabase } from '../../lib/supabase';
@@ -49,7 +51,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
     billing_address_json: null,
     shipping_address_json: null,
     amount_paid: 0,
-    document_type_id: ''
+    document_type_id: '',
+    vat_regime: 'normal',
+    legal_mention: VAT_REGIME_CONFIGS.normal.legalMention
   });
 
   // Document types
@@ -76,8 +80,8 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
 
   // Contexte du document
   const [docCustomerType, setDocCustomerType] = useState<'pro' | 'particulier'>('particulier');
-  const [docVatRegime, setDocVatRegime] = useState<'normal' | 'margin'>('normal');
   const [selectedProductForNewItem, setSelectedProductForNewItem] = useState<ProductWithStock | null>(null);
+  const [vatCompatibilityError, setVatCompatibilityError] = useState<string | null>(null);
   const [viewAfterSave, setViewAfterSave] = useState<boolean>(false);
   // UI/UX: accordéon + saisie manuelle adresses
   const [isClientSectionCollapsed, setIsClientSectionCollapsed] = useState(false);
@@ -188,7 +192,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
         billing_address_json: row.billing_address_json,
         shipping_address_json: row.shipping_address_json,
         amount_paid: row.amount_paid || 0,
-        document_type_id: row.document_type_id || ''
+        document_type_id: row.document_type_id || '',
+        vat_regime: row.vat_regime || 'normal',
+        legal_mention: row.legal_mention || VAT_REGIME_CONFIGS[row.vat_regime || 'normal'].legalMention
       });
       
       // Find and set the selected customer
@@ -242,36 +248,21 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
     return () => { cancelled = true; };
   }, [productSearchTerm]);
 
-  // Toggle dropdown visibility in sync with search results (filtered by VAT regime)
+  // Toggle dropdown visibility in sync with search results
   useEffect(() => {
-    const list = filteredProducts.filter((p: any) => (p as any).vat_type === docVatRegime);
-    setShowProductDropdown(productSearchTerm.trim() !== '' && list.length > 0);
-  }, [productSearchTerm, filteredProducts, docVatRegime]);
+    setShowProductDropdown(productSearchTerm.trim() !== '' && filteredProducts.length > 0);
+  }, [productSearchTerm, filteredProducts]);
 
   // Recompute price when type client / regime changes, based on the selected product
   useEffect(() => {
     if (!selectedProductForNewItem) return;
 
-    // If selected product has a VAT type that no longer matches the document, reset selection
-    const selVat = (selectedProductForNewItem as any).vat_type;
-    if (selVat && selVat !== docVatRegime) {
-      setSelectedProductForNewItem(null);
-      setNewItem(prev => ({
-        ...prev,
-        product_id: '',
-        description: '',
-        unit_price: 0,
-        total_price: 0,
-        tax_rate: docVatRegime === 'margin' ? 0 : 20
-      }));
-      return;
-    }
-
+    const vatRegime = formData.vat_regime || 'normal';
     const base =
       docCustomerType === 'pro'
         ? Number((selectedProductForNewItem as any).pro_price || 0)
         : Number((selectedProductForNewItem as any).retail_price || 0);
-    const taxRate = docVatRegime === 'margin' ? 0 : 20;
+    const taxRate = vatRegime === 'margin' ? 0 : 20;
     setNewItem(prev => {
       const qty = prev.quantity || 1;
       return {
@@ -281,28 +272,40 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
         total_price: base * qty
       };
     });
-  }, [docCustomerType, docVatRegime, selectedProductForNewItem]);
+  }, [docCustomerType, formData.vat_regime, selectedProductForNewItem]);
   
   // Calculate totals when items change
   useEffect(() => {
+    console.log('Recalculating totals with vat_regime:', formData.vat_regime);
+
     let totalHT = 0;
     let totalTVA = 0;
-    
+
+    const vatRegime = formData.vat_regime || 'normal';
+    const config = VAT_REGIME_CONFIGS[vatRegime];
+
     items.forEach(item => {
       if (item.total_price) {
         totalHT += item.total_price;
-        totalTVA += item.total_price * ((item.tax_rate || 20) / 100);
+
+        // Calculer la TVA seulement si le régime le permet
+        if (config.calculateVat) {
+          totalTVA += item.total_price * ((item.tax_rate || 20) / 100);
+        }
       }
     });
-    
-    const totalTTC = totalHT + totalTVA;
-    
+
+    // Pour TVA sur marge et export, TTC = HT (pas de TVA affichée)
+    const totalTTC = config.calculateVat ? totalHT + totalTVA : totalHT;
+
+    console.log('Totals calculated:', { totalHT, totalTVA, totalTTC, vatRegime });
+
     setTotals({
       totalHT,
       totalTVA,
       totalTTC
     });
-    
+
     // Update form data with new totals
     setFormData(prev => ({
       ...prev,
@@ -310,7 +313,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
       total_ttc: totalTTC,
       tva: totalTVA
     }));
-  }, [items]);
+  }, [items, formData.vat_regime]);
   
   // Handle customer selection
   const handleCustomerSelect = (customer: CustomerWithAddresses) => {
@@ -356,9 +359,43 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
     }
   };
   
+  // Check VAT compatibility between product and invoice
+  const checkVatCompatibility = (productVatType: string | null | undefined, invoiceVatRegime: VatRegime): { compatible: boolean; message?: string } => {
+    console.log('[checkVatCompatibility] Product VAT:', productVatType, 'Invoice VAT:', invoiceVatRegime);
+
+    // Sans TVA (export) peut contenir à la fois TVA normale et marge
+    if (invoiceVatRegime === 'export') {
+      return { compatible: true };
+    }
+
+    // Pour les autres régimes, le vat_type du produit doit correspondre
+    if (!productVatType || productVatType === invoiceVatRegime) {
+      return { compatible: true };
+    }
+
+    const regimeLabel = invoiceVatRegime === 'margin' ? 'TVA sur marge' : 'TVA normale';
+    const productLabel = productVatType === 'margin' ? 'TVA sur marge' : 'TVA normale';
+
+    return {
+      compatible: false,
+      message: `Attention : le régime de TVA sélectionné est « ${regimeLabel} » mais ce produit est en « ${productLabel} ». Veuillez changer le régime pour établir la facture.`
+    };
+  };
+
   // Handle product selection
   const handleProductSelect = async (product: ProductWithStock) => {
     console.log('Product selected:', product);
+    setVatCompatibilityError(null);
+
+    const invoiceVatRegime = formData.vat_regime || 'normal';
+
+    // Check VAT compatibility
+    const vatCheck = checkVatCompatibility((product as any).vat_type, invoiceVatRegime);
+    if (!vatCheck.compatible) {
+      console.warn('[handleProductSelect] VAT incompatibility detected');
+      setVatCompatibilityError(vatCheck.message || 'Incompatibilité de régime TVA');
+      return;
+    }
 
     // If parent PAM, under selected VAT regime we need to propose serials (IMEI)
     if ((product as any).product_type === 'PAM') {
@@ -370,7 +407,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
           .select('id,name,sku,serial_number,retail_price,pro_price,purchase_price_with_fees,vat_type' as any)
           .eq('parent_id' as any, (product as any).id as any)
           .not('serial_number' as any, 'is' as any, null as any)
-          .eq('vat_type' as any, docVatRegime as any);
+          .eq('vat_type' as any, invoiceVatRegime as any);
 
         if (error) {
           console.warn('IMEI fetch failed:', error);
@@ -382,7 +419,8 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
         if (options.length === 0) {
           setSerialOptions([]);
           setShowSerialModal(false);
-          setSerialLoadError(`Aucun IMEI en ${docVatRegime === 'margin' ? 'marge' : 'TVA normale'} disponible`);
+          const regimeLabel = invoiceVatRegime === 'margin' ? 'marge' : invoiceVatRegime === 'export' ? 'sans TVA' : 'TVA normale';
+          setSerialLoadError(`Aucun IMEI en ${regimeLabel} disponible`);
           return;
         }
 
@@ -394,7 +432,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
             docCustomerType === 'pro'
               ? Number((child as any).pro_price || 0)
               : Number((child as any).retail_price || 0);
-          const taxRate = docVatRegime === 'margin' ? 0 : 20;
+          const taxRate = invoiceVatRegime === 'margin' ? 0 : 20;
           setNewItem({
             product_id: child.id,
             description: child.name,
@@ -427,7 +465,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
       docCustomerType === 'pro'
         ? Number((product as any).pro_price || 0)
         : Number((product as any).retail_price || 0);
-    const taxRate = docVatRegime === 'margin' ? 0 : 20;
+    const taxRate = invoiceVatRegime === 'margin' ? 0 : 20;
 
     setSelectedProductForNewItem(product);
     setNewItem({
@@ -517,16 +555,31 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
   
   // Handle adding a new item
   const handleAddItem = () => {
+    console.log('[handleAddItem] Adding new item:', newItem);
+
     if (!newItem.description || !newItem.quantity || !newItem.unit_price) {
       alert('Veuillez remplir tous les champs de l\'article');
       return;
     }
-    
+
+    // Validate VAT compatibility if product is selected
+    if (newItem.product_id && selectedProductForNewItem) {
+      const invoiceVatRegime = formData.vat_regime || 'normal';
+      const productVatType = (selectedProductForNewItem as any).vat_type;
+      const vatCheck = checkVatCompatibility(productVatType, invoiceVatRegime);
+
+      if (!vatCheck.compatible) {
+        console.warn('[handleAddItem] VAT incompatibility detected');
+        setVatCompatibilityError(vatCheck.message || 'Incompatibilité de régime TVA');
+        return;
+      }
+    }
+
     const itemToAdd = {
       ...newItem,
       total_price: (newItem.quantity || 0) * (newItem.unit_price || 0)
     };
-    
+
     setItems(prev => [...prev, itemToAdd]);
     setNewItem({
       product_id: '',
@@ -536,6 +589,8 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
       tax_rate: 20,
       total_price: 0
     });
+    setSelectedProductForNewItem(null);
+    setVatCompatibilityError(null);
     setProductSearchTerm('');
   };
   
@@ -628,7 +683,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
             total_ht: totals.totalHT,
             total_ttc: totals.totalTTC,
             tva: totals.totalTVA,
-            document_type_id: (formData as any).document_type_id
+            document_type_id: (formData as any).document_type_id,
+            vat_regime: (formData as any).vat_regime || 'normal',
+            legal_mention: (formData as any).legal_mention
           } as any)
           .eq('id' as any, invoiceId as any);
 
@@ -729,7 +786,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
             total_ttc: totals.totalTTC,
             tva: totals.totalTVA,
             amount_paid: 0,
-            document_type_id: (formData as any).document_type_id
+            document_type_id: (formData as any).document_type_id,
+            vat_regime: (formData as any).vat_regime || 'normal',
+            legal_mention: (formData as any).legal_mention
           }] as any)
           .select()
           .single();
@@ -1187,22 +1246,6 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
               </select>
             </div>
 
-            {/* Régime TVA du document */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Régime TVA du document
-              </label>
-              <select
-                value={docVatRegime}
-                onChange={(e) => setDocVatRegime((e.target.value as 'normal' | 'margin'))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                title="Une facture ne peut pas mélanger les régimes de TVA"
-              >
-                <option value="normal">Normale</option>
-                <option value="margin">Marge</option>
-              </select>
-            </div>
-
             {/* Document Type */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1222,6 +1265,56 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                   <option key={type.id} value={type.id}>{type.label}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Régime TVA */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Type de facturation <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={formData.vat_regime || 'normal'}
+                onChange={(e) => {
+                  const regime = e.target.value as VatRegime;
+                  console.log('VAT regime selected:', regime);
+
+                  // Vérifier si des articles sont déjà ajoutés
+                  if (items.length > 0) {
+                    const confirmChange = window.confirm(
+                      'Changer le régime TVA va réinitialiser tous les articles. Continuer ?'
+                    );
+                    if (!confirmChange) return;
+
+                    // Réinitialiser les articles
+                    setItems([]);
+                  }
+
+                  const config = VAT_REGIME_CONFIGS[regime];
+                  setFormData(prev => ({
+                    ...prev,
+                    vat_regime: regime,
+                    legal_mention: config.legalMention
+                  }));
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                required
+                disabled={items.length > 0}
+                title={items.length > 0 ? 'Impossible de changer le régime TVA avec des articles déjà ajoutés' : ''}
+              >
+                {Object.values(VAT_REGIME_CONFIGS).map(config => (
+                  <option key={config.value} value={config.value}>
+                    {config.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {VAT_REGIME_CONFIGS[formData.vat_regime || 'normal'].description}
+              </p>
+              {items.length > 0 && (
+                <p className="mt-1 text-xs text-amber-600">
+                  ⚠ Verrouillé : des articles sont déjà ajoutés
+                </p>
+              )}
             </div>
 
             {/* Date Issued */}
@@ -1551,16 +1644,30 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                 {showProductDropdown && filteredProducts.length > 0 && (
                   <div className="absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md max-h-60 overflow-auto">
                     <ul className="py-1">
-                      {filteredProducts
-                        .filter((p: any) => (p as any).vat_type === docVatRegime)
-                        .map(product => (
-                          <li 
+                      {filteredProducts.map(product => {
+                        const invoiceVatRegime = formData.vat_regime || 'normal';
+                        const productVatType = (product as any).vat_type;
+                        const vatCheck = checkVatCompatibility(productVatType, invoiceVatRegime);
+                        const isCompatible = vatCheck.compatible;
+
+                        return (
+                          <li
                             key={product.id}
-                            className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                            className={`px-4 py-2 cursor-pointer ${isCompatible ? 'hover:bg-gray-100' : 'bg-red-50 hover:bg-red-100 opacity-75'}`}
                             onClick={() => handleProductSelect(product)}
                           >
-                            <div className="font-medium">{product.name}</div>
-                            <div className="text-sm text-gray-500">SKU: {product.sku}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="font-medium">{product.name}</div>
+                              {!isCompatible && (
+                                <span className="text-xs bg-red-600 text-white px-2 py-0.5 rounded">Incompatible</span>
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              SKU: {product.sku}
+                              {(product as any).serial_number && (
+                                <span className="ml-2">• IMEI: {(product as any).serial_number}</span>
+                              )}
+                            </div>
                             <div className="text-sm text-gray-500">
                               Prix: {formatCurrency(
                                 (docCustomerType === 'pro'
@@ -1581,8 +1688,14 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                               })()}
                             </div>
                           </li>
-                        ))}
+                        );
+                      })}
                     </ul>
+                  </div>
+                )}
+                {vatCompatibilityError && (
+                  <div className="mt-2 p-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
+                    {vatCompatibilityError}
                   </div>
                 )}
                 {serialLoadError && (
@@ -1632,7 +1745,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
               {/* Unit Price */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Prix unitaire {docVatRegime === 'margin' ? 'TVM' : 'HT'} <span className="text-red-500">*</span>
+                  Prix unitaire {(formData.vat_regime || 'normal') === 'margin' ? 'TVM' : 'HT'} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -1657,7 +1770,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                       const achat = Number((selectedProductForNewItem as any).purchase_price_with_fees || 0);
                       const pu = Number(newItem.unit_price || 0);
                       if (achat > 0 && pu > 0) {
-                        const margeEuro = docVatRegime === 'margin' ? (pu - achat) / 1.2 : (pu - achat);
+                        const margeEuro = (formData.vat_regime || 'normal') === 'margin' ? (pu - achat) / 1.2 : (pu - achat);
                         const margePct = achat > 0 ? (margeEuro / achat) * 100 : 0;
 
                         // Color rules copied from ProductList
@@ -1826,30 +1939,63 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
           <div className="mt-6 flex justify-end">
             <div className="w-full max-w-xs">
               <div className="bg-gray-50 p-4 rounded-md">
-                <div className="flex justify-between mb-2">
-                  <span className="text-gray-600">Total HT:</span>
-                  <span className="font-medium">{formatCurrency(totals.totalHT)}</span>
-                </div>
-                <div className="flex justify-between mb-2">
-                  <span className="text-gray-600">TVA:</span>
-                  <span className="font-medium">{formatCurrency(totals.totalTVA)}</span>
-                </div>
-                <div className="flex justify-between font-bold">
-                  <span>Total TTC:</span>
-                  <span>{formatCurrency(totals.totalTTC)}</span>
-                </div>
-                {invoiceId && formData.amount_paid && formData.amount_paid > 0 && (
-                  <>
-                    <div className="border-t border-gray-300 my-2 pt-2 flex justify-between">
-                      <span className="text-gray-600">Montant payé:</span>
-                      <span className="font-medium text-green-600">{formatCurrency(formData.amount_paid)}</span>
-                    </div>
-                    <div className="flex justify-between font-bold">
-                      <span>Reste à payer:</span>
-                      <span>{formatCurrency(Math.max(0, totals.totalTTC - (formData.amount_paid || 0)))}</span>
-                    </div>
-                  </>
-                )}
+                {(() => {
+                  const vatRegime = formData.vat_regime || 'normal';
+                  const config = VAT_REGIME_CONFIGS[vatRegime];
+
+                  return (
+                    <>
+                      {/* Mention légale en haut selon le régime */}
+                      {formData.legal_mention && (
+                        <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                          <strong>Mention légale:</strong> {formData.legal_mention}
+                        </div>
+                      )}
+
+                      {/* Totaux selon le régime */}
+                      {config.showVatColumn ? (
+                        <>
+                          {/* TVA normale : afficher HT, TVA, TTC */}
+                          <div className="flex justify-between mb-2">
+                            <span className="text-gray-600">Total HT:</span>
+                            <span className="font-medium">{formatCurrency(totals.totalHT)}</span>
+                          </div>
+                          <div className="flex justify-between mb-2">
+                            <span className="text-gray-600">TVA:</span>
+                            <span className="font-medium">{formatCurrency(totals.totalTVA)}</span>
+                          </div>
+                          <div className="flex justify-between font-bold">
+                            <span>Total TTC:</span>
+                            <span>{formatCurrency(totals.totalTTC)}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* TVA sur marge ou export : afficher uniquement le total */}
+                          <div className="flex justify-between font-bold">
+                            <span>
+                              {vatRegime === 'margin' ? 'Total TTC (TVA incluse):' : 'Total (sans TVA):'}
+                            </span>
+                            <span>{formatCurrency(totals.totalTTC)}</span>
+                          </div>
+                        </>
+                      )}
+
+                      {invoiceId && formData.amount_paid && formData.amount_paid > 0 && (
+                        <>
+                          <div className="border-t border-gray-300 my-2 pt-2 flex justify-between">
+                            <span className="text-gray-600">Montant payé:</span>
+                            <span className="font-medium text-green-600">{formatCurrency(formData.amount_paid)}</span>
+                          </div>
+                          <div className="flex justify-between font-bold">
+                            <span>Reste à payer:</span>
+                            <span>{formatCurrency(Math.max(0, totals.totalTTC - (formData.amount_paid || 0)))}</span>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -1884,7 +2030,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[80vh] overflow-hidden">
             <div className="px-4 py-3 border-b flex items-center justify-between">
               <h3 className="text-lg font-semibold">
-                Sélectionner un IMEI ({docVatRegime === 'margin' ? 'marge' : 'TVA normale'})
+                Sélectionner un IMEI ({(formData.vat_regime || 'normal') === 'margin' ? 'marge' : (formData.vat_regime === 'export' ? 'sans TVA' : 'TVA normale')})
               </h3>
               <button
                 type="button"
@@ -1897,7 +2043,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
             <div className="p-4 overflow-auto" style={{ maxHeight: '60vh' }}>
               {serialOptions.length === 0 ? (
                 <div className="text-red-600">
-                  Aucun IMEI en {docVatRegime === 'margin' ? 'marge' : 'TVA normale'} disponible
+                  Aucun IMEI en {(formData.vat_regime || 'normal') === 'margin' ? 'marge' : (formData.vat_regime === 'export' ? 'sans TVA' : 'TVA normale')} disponible
                 </div>
               ) : (
                 <table className="min-w-full divide-y divide-gray-200">
@@ -1931,7 +2077,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                               className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
                               onClick={() => {
                                 const base = docCustomerType === 'pro' ? pricePro : pricePart;
-                                const taxRate = docVatRegime === 'margin' ? 0 : 20;
+                                const taxRate = (formData.vat_regime || 'normal') === 'margin' ? 0 : 20;
                                 setSelectedProductForNewItem(child as any);
                                 setNewItem({
                                   product_id: child.id,

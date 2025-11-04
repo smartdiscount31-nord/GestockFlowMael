@@ -23,6 +23,9 @@ export interface CompanySettings {
   // Footer and Terms
   footer_text?: string | null;
   terms_and_conditions?: string | null;
+  // Credit Note specific settings
+  credit_note_footer_text?: string | null;
+  credit_note_terms?: string | null;
   // Bank information (split fields)
   bank_name?: string | null;
   bank_iban?: string | null;
@@ -61,6 +64,8 @@ const defaultSettings: CompanySettings = {
   logo_url: null,
   footer_text: null,
   terms_and_conditions: null,
+  credit_note_footer_text: null,
+  credit_note_terms: null,
   bank_name: null,
   bank_iban: null,
   bank_bic: null,
@@ -149,28 +154,43 @@ export const useAppSettingsStore = create<AppSettingsStore>((set, get) => ({
   uploadLogo: async (file: File) => {
     set({ isLoading: true, error: null });
     try {
+      console.log('[AppSettingsStore] Starting logo upload process...', { fileName: file.name, fileSize: file.size });
+
       // Ensure settings row exists
       if (!get().settings) {
+        console.log('[AppSettingsStore] Settings not found, fetching...');
         await get().fetchSettings();
       }
+
       const path = `logos/company-logo-${Date.now()}-${file.name}`;
+      console.log('[AppSettingsStore] Upload path:', path);
+      console.log('[AppSettingsStore] Using bucket: app-assets');
+
       const { error: uploadError } = await supabase
         .storage
-        .from('assets')
+        .from('app-assets')
         .upload(path, file, { upsert: true });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('[AppSettingsStore] Upload error:', uploadError);
+        throw uploadError;
+      }
 
-      const { data: pub } = supabase.storage.from('assets').getPublicUrl(path);
+      console.log('[AppSettingsStore] File uploaded successfully, generating public URL...');
+      const { data: pub } = supabase.storage.from('app-assets').getPublicUrl(path);
       const publicUrl = pub?.publicUrl || null;
-      if (!publicUrl) throw new Error('Impossible de générer l’URL publique du logo');
+      console.log('[AppSettingsStore] Public URL generated:', publicUrl);
 
+      if (!publicUrl) throw new Error('Impossible de générer l\'URL publique du logo');
+
+      console.log('[AppSettingsStore] Updating settings with new logo URL...');
       await get().updateSettings('logo_url', publicUrl);
+      console.log('[AppSettingsStore] Logo upload completed successfully');
       set({ isLoading: false });
     } catch (err: any) {
       console.error('[AppSettingsStore] Error uploading logo:', err);
       set({
-        error: err instanceof Error ? err.message : 'Erreur lors de l’upload du logo',
+        error: err instanceof Error ? err.message : 'Erreur lors de l\'upload du logo',
         isLoading: false,
       });
       throw err;
