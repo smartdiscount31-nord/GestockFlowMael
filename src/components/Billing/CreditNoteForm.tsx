@@ -103,7 +103,9 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
       // Set selected invoice
       if (data.invoice) {
         setSelectedInvoice(data.invoice);
-        fetchInvoiceItems(data.invoice_id);
+      }
+      if (data.invoice_id) {
+        fetchInvoiceItems(data.invoice_id as string);
       }
       
       // Set items
@@ -177,7 +179,8 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
   };
   
   // Fetch invoice items
-  const fetchInvoiceItems = async (invoiceId: string) => {
+  const fetchInvoiceItems = async (invoiceId?: string) => {
+    if (!invoiceId) return;
     try {
       console.log(`Fetching items for invoice with ID: ${invoiceId}`);
       const { data, error } = await supabase
@@ -921,6 +924,18 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
               </div>
             </div>
           </div>
+        </div>
+        {/* Bouton d'action en bas */}
+        <div className="mt-6 flex justify-end">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            disabled={isLoading}
+          >
+            <Save size={18} />
+            {isLoading ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
         </div>
       </form>
     </div>

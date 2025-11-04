@@ -25,6 +25,8 @@ import {
 } from '../../types/billing';
 import { ProductWithStock } from '../../types/supabase';
 import { CSVImportArticles } from './CSVImportArticles';
+import { ProductSearch } from '../Search/ProductSearch';
+import { supabase } from '../../lib/supabase';
 
 interface QuoteFormProps {
   quoteId?: string;
@@ -36,14 +38,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
     currentQuote, 
     isLoading, 
     error, 
-    getQuoteById, 
-    createQuote, 
-    updateQuote, 
-    addQuoteItem, 
-    updateQuoteItem, 
-    deleteQuoteItem,
-    recalculateQuoteTotals,
-    importItemsFromCSV
+    getQuoteById
   } = useQuoteStore();
   
   const { customers, fetchCustomers } = useCustomerStore();
@@ -82,6 +77,11 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
     tax_rate: 20,
     total_price: 0
   });
+  // Contexte client/prix + UX
+  const [docCustomerType, setDocCustomerType] = useState<'pro' | 'particulier'>('particulier');
+  const [isClientSectionCollapsed, setIsClientSectionCollapsed] = useState(false);
+  const [billingManual, setBillingManual] = useState(false);
+  const [shippingManual, setShippingManual] = useState(false);
   
   // Totals
   const [totals, setTotals] = useState({
@@ -153,7 +153,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
       
       // Set items
       if (currentQuote.items) {
-        setItems(currentQuote.items.map(item => ({
+        setItems(currentQuote.items.map((item: any) => ({
           id: item.id,
           product_id: item.product_id,
           description: item.description,
@@ -215,8 +215,14 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
     console.log('Customer selected:', customer);
     setSelectedCustomer(customer);
     setFormData(prev => ({ ...prev, customer_id: customer.id }));
+    // Prix basé sur groupe client
+    const cg = ((customer as any)?.customer_group || '').toLowerCase() === 'pro' ? 'pro' : 'particulier';
+    setDocCustomerType(cg as 'pro' | 'particulier');
     setCustomerSearchTerm('');
     setShowCustomerDropdown(false);
+    setIsClientSectionCollapsed(true);
+    setBillingManual(false);
+    setShippingManual(false);
     
     // Set default addresses if available
     if (customer.addresses && customer.addresses.length > 0) {
@@ -250,13 +256,16 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
   // Handle product selection
   const handleProductSelect = (product: ProductWithStock) => {
     console.log('Product selected:', product);
+    const base = docCustomerType === 'pro'
+      ? Number((product as any).pro_price || 0)
+      : Number((product as any).retail_price || 0);
     setNewItem({
-      product_id: product.id,
-      description: product.name,
+      product_id: (product as any).id,
+      description: (product as any).name,
       quantity: 1,
-      unit_price: product.retail_price || 0,
+      unit_price: base,
       tax_rate: 20,
-      total_price: product.retail_price || 0
+      total_price: base
     });
     setProductSearchTerm('');
     setShowProductDropdown(false);
@@ -336,91 +345,140 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
       alert('Veuillez sélectionner un client');
       return;
     }
-
     if (!formData.document_type_id) {
       alert('Veuillez sélectionner un type de document');
       return;
     }
-
     if (items.length === 0) {
       alert('Veuillez ajouter au moins un article');
       return;
     }
-    
+
     try {
       if (quoteId) {
-        // Update existing quote
+        // Update existing quote via Supabase
         console.log('Updating quote with ID:', quoteId);
-        await updateQuote(quoteId, formData as QuoteInsert);
-        
-        // Handle items - this is more complex as we need to add/update/delete
-        const existingItems = currentQuote?.items || [];
-        
-        // Items to add (those without an id)
-        const itemsToAdd = items.filter(item => !item.id);
-        for (const item of itemsToAdd) {
-          await addQuoteItem(quoteId, item as Omit<QuoteItemInsert, 'quote_id'>);
+        const { error: updateErr } = await (supabase as any)
+          .from('quotes' as any)
+          .update({
+            customer_id: (formData as any).customer_id,
+            status: (formData as any).status || 'draft',
+            date_issued: (formData as any).date_issued,
+            date_expiry: (formData as any).date_expiry,
+            note: (formData as any).note || '',
+            total_ht: (totals as any).totalHT,
+            total_ttc: (totals as any).totalTTC,
+            tva: (totals as any).totalTVA,
+            document_type_id: (formData as any).document_type_id
+          } as any)
+          .eq('id' as any, quoteId as any);
+        if (updateErr) throw updateErr;
+
+        // Sync items: add/update/delete
+        const { data: existingItems, error: itemsErr } = await (supabase as any)
+          .from('quote_items' as any)
+          .select('id' as any)
+          .eq('quote_id' as any, quoteId as any);
+        if (itemsErr) throw itemsErr;
+
+        // Add new
+        const itemsToAdd = (items as any[]).filter((it: any) => !it.id);
+        if (itemsToAdd.length > 0) {
+          const { error: addErr } = await (supabase as any)
+            .from('quote_items' as any)
+            .insert(itemsToAdd.map((it: any) => ({
+              quote_id: quoteId,
+              product_id: it.product_id,
+              description: it.description,
+              quantity: it.quantity,
+              unit_price: it.unit_price,
+              tax_rate: it.tax_rate,
+              total_price: it.total_price
+            })) as any);
+          if (addErr) throw addErr;
         }
-        
-        // Items to update (those with an id)
-        const itemsToUpdate = items.filter(item => item.id);
-        for (const item of itemsToUpdate) {
-          await updateQuoteItem(item.id as string, item as Partial<QuoteItemInsert>);
+
+        // Update existing
+        for (const it of (items as any[]).filter((x: any) => x.id)) {
+          const { error: updItErr } = await (supabase as any)
+            .from('quote_items' as any)
+            .update({
+              product_id: (it as any).product_id,
+              description: (it as any).description,
+              quantity: (it as any).quantity,
+              unit_price: (it as any).unit_price,
+              tax_rate: (it as any).tax_rate,
+              total_price: (it as any).total_price
+            } as any)
+            .eq('id' as any, (it as any).id as any);
+          if (updItErr) throw updItErr;
         }
-        
-        // Items to delete (those in existingItems but not in items)
-        const itemsToDelete = existingItems.filter(
-          existingItem => !items.some(item => item.id === existingItem.id)
-        );
-        for (const item of itemsToDelete) {
-          await deleteQuoteItem(item.id, quoteId);
+
+        // Delete removed
+        const existingIds = ((existingItems as any[]) || []).map((it: any) => it.id);
+        const currentIds = (items as any[]).filter((x: any) => x.id).map((x: any) => x.id);
+        const toDelete = existingIds.filter((id: string) => !currentIds.includes(id));
+        if (toDelete.length > 0) {
+          const { error: delErr } = await (supabase as any)
+            .from('quote_items' as any)
+            .delete()
+            .in('id' as any, toDelete as any);
+          if (delErr) throw delErr;
         }
-        
-        // Recalculate totals
-        await recalculateQuoteTotals(quoteId);
 
         console.log('Quote updated successfully');
-
-        // Call onSaved callback if provided
         if (onSaved) {
           onSaved(quoteId);
-        } else {
-          // Default behavior: redirect to quote list
-          console.log('Redirecting to quote list');
-          if ((window as any).__setCurrentPage) {
-            (window as any).__setCurrentPage('quotes-list');
-          }
+        } else if ((window as any).__setCurrentPage) {
+          (window as any).__setCurrentPage('quotes-list');
         }
       } else {
         // Create new quote
         console.log('Creating new quote');
-        const result = await createQuote(formData as QuoteInsert);
-        
-        if (result) {
-          // Add items
-          for (const item of items) {
-            await addQuoteItem(result.id, item as Omit<QuoteItemInsert, 'quote_id'>);
-          }
-          
-          // Recalculate totals
-          await recalculateQuoteTotals(result.id);
+        const { data: qData, error: qErr } = await (supabase as any)
+          .from('quotes' as any)
+          .insert([{
+            customer_id: (formData as any).customer_id,
+            status: (formData as any).status || 'draft',
+            date_issued: (formData as any).date_issued,
+            date_expiry: (formData as any).date_expiry,
+            note: (formData as any).note || '',
+            total_ht: (totals as any).totalHT,
+            total_ttc: (totals as any).totalTTC,
+            tva: (totals as any).totalTVA,
+            document_type_id: (formData as any).document_type_id
+          }] as any)
+          .select()
+          .single();
+        if (qErr) throw qErr;
 
-          console.log('Quote created successfully');
+        const newId = (qData as any).id;
 
-          // Call onSaved callback if provided
-          if (onSaved) {
-            onSaved(result.id);
-          } else {
-            // Default behavior: redirect to quote list
-            console.log('Redirecting to quote list');
-            if ((window as any).__setCurrentPage) {
-              (window as any).__setCurrentPage('quotes-list');
-            }
-          }
+        if ((items as any[]).length > 0) {
+          const { error: addErr } = await (supabase as any)
+            .from('quote_items' as any)
+            .insert((items as any[]).map((it: any) => ({
+              quote_id: newId,
+              product_id: it.product_id,
+              description: it.description,
+              quantity: it.quantity,
+              unit_price: it.unit_price,
+              tax_rate: it.tax_rate,
+              total_price: it.total_price
+            })) as any);
+          if (addErr) throw addErr;
+        }
+
+        console.log('Quote created successfully');
+        if (onSaved) {
+          onSaved(newId);
+        } else if ((window as any).__setCurrentPage) {
+          (window as any).__setCurrentPage('quotes-list');
         }
       }
     } catch (err) {
       console.error('Error saving quote:', err);
+      alert('Erreur lors de l’enregistrement du devis (voir console)');
     }
   };
   
@@ -511,12 +569,68 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
       <form className="space-y-8">
         {/* Customer and Quote Details Section */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center">
-            <User size={20} className="mr-2" />
-            Informations client et devis
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold flex items-center">
+              <User size={20} className="mr-2" />
+              Informations client et devis
+            </h2>
+            <button
+              type="button"
+              onClick={() => setIsClientSectionCollapsed(v => !v)}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              title={isClientSectionCollapsed ? 'Déplier' : 'Replier'}
+            >
+              {isClientSectionCollapsed ? 'Déplier' : 'Replier'}
+            </button>
+          </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {isClientSectionCollapsed && selectedCustomer && (
+            <div className="p-3 mb-4 bg-gray-50 border rounded-md">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-medium">{selectedCustomer.name}</div>
+                  {selectedCustomer.email && <div className="text-sm text-gray-600">{selectedCustomer.email}</div>}
+                  {selectedCustomer.phone && <div className="text-sm text-gray-600">{selectedCustomer.phone}</div>}
+                </div>
+                <span className={`h-fit px-2 py-1 rounded-full text-xs ${docCustomerType === 'pro' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                  {docCustomerType === 'pro' ? 'Pro' : 'Particulier'}
+                </span>
+              </div>
+              {(formData.billing_address_json || formData.shipping_address_json) && (
+                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700">
+                  {formData.billing_address_json && (
+                    <div>
+                      <div className="font-medium">Facturation</div>
+                      <div>{formData.billing_address_json.line1}</div>
+                      {formData.billing_address_json.line2 && <div>{formData.billing_address_json.line2}</div>}
+                      <div>{formData.billing_address_json.zip} {formData.billing_address_json.city}</div>
+                      <div>{formData.billing_address_json.country}</div>
+                    </div>
+                  )}
+                  {formData.shipping_address_json && (
+                    <div>
+                      <div className="font-medium">Livraison</div>
+                      <div>{formData.shipping_address_json.line1}</div>
+                      {formData.shipping_address_json.line2 && <div>{formData.shipping_address_json.line2}</div>}
+                      <div>{formData.shipping_address_json.zip} {formData.shipping_address_json.city}</div>
+                      <div>{formData.shipping_address_json.country}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="mt-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => setIsClientSectionCollapsed(false)}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Modifier
+                </button>
+              </div>
+            </div>
+          )}
+          
+          <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isClientSectionCollapsed ? 'hidden' : ''}`}>
             {/* Customer Selection */}
             <div className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -678,12 +792,37 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
           </div>
           
           {/* Addresses Section */}
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className={`mt-6 grid grid-cols-1 md:grid-cols-2 gap-6 ${isClientSectionCollapsed ? 'hidden' : ''}`}>
             {/* Billing Address */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Adresse de facturation
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  Adresse de facturation
+                </label>
+                <label className="text-xs text-gray-600 flex items-center gap-1">
+                  <input type="checkbox" checked={billingManual} onChange={(e) => setBillingManual(e.target.checked)} />
+                  Saisie manuelle
+                </label>
+              </div>
+              {billingManual && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                  <input className="px-3 py-2 border rounded-md col-span-2" placeholder="Ligne 1"
+                         value={formData.billing_address_json?.line1 || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, billing_address_json: { ...(prev.billing_address_json as any) || {}, line1: e.target.value } as any }))} />
+                  <input className="px-3 py-2 border rounded-md col-span-2" placeholder="Ligne 2"
+                         value={formData.billing_address_json?.line2 || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, billing_address_json: { ...(prev.billing_address_json as any) || {}, line2: e.target.value } as any }))} />
+                  <input className="px-3 py-2 border rounded-md" placeholder="Code postal"
+                         value={formData.billing_address_json?.zip || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, billing_address_json: { ...(prev.billing_address_json as any) || {}, zip: e.target.value } as any }))} />
+                  <input className="px-3 py-2 border rounded-md" placeholder="Ville"
+                         value={formData.billing_address_json?.city || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, billing_address_json: { ...(prev.billing_address_json as any) || {}, city: e.target.value } as any }))} />
+                  <input className="px-3 py-2 border rounded-md col-span-2" placeholder="Pays"
+                         value={formData.billing_address_json?.country || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, billing_address_json: { ...(prev.billing_address_json as any) || {}, country: e.target.value } as any }))} />
+                </div>
+              )}
               {selectedCustomer && selectedCustomer.addresses && selectedCustomer.addresses.length > 0 ? (
                 <select
                   onChange={(e) => {
@@ -734,9 +873,34 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
             
             {/* Shipping Address */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Adresse de livraison
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  Adresse de livraison
+                </label>
+                <label className="text-xs text-gray-600 flex items-center gap-1">
+                  <input type="checkbox" checked={shippingManual} onChange={(e) => setShippingManual(e.target.checked)} />
+                  Saisie manuelle
+                </label>
+              </div>
+              {shippingManual && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                  <input className="px-3 py-2 border rounded-md col-span-2" placeholder="Ligne 1"
+                         value={formData.shipping_address_json?.line1 || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, shipping_address_json: { ...(prev.shipping_address_json as any) || {}, line1: e.target.value } as any }))} />
+                  <input className="px-3 py-2 border rounded-md col-span-2" placeholder="Ligne 2"
+                         value={formData.shipping_address_json?.line2 || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, shipping_address_json: { ...(prev.shipping_address_json as any) || {}, line2: e.target.value } as any }))} />
+                  <input className="px-3 py-2 border rounded-md" placeholder="Code postal"
+                         value={formData.shipping_address_json?.zip || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, shipping_address_json: { ...(prev.shipping_address_json as any) || {}, zip: e.target.value } as any }))} />
+                  <input className="px-3 py-2 border rounded-md" placeholder="Ville"
+                         value={formData.shipping_address_json?.city || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, shipping_address_json: { ...(prev.shipping_address_json as any) || {}, city: e.target.value } as any }))} />
+                  <input className="px-3 py-2 border rounded-md col-span-2" placeholder="Pays"
+                         value={formData.shipping_address_json?.country || ''}
+                         onChange={(e) => setFormData(prev => ({ ...prev, shipping_address_json: { ...(prev.shipping_address_json as any) || {}, country: e.target.value } as any }))} />
+                </div>
+              )}
               {selectedCustomer && selectedCustomer.addresses && selectedCustomer.addresses.length > 0 ? (
                 <select
                   onChange={(e) => {
@@ -827,18 +991,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
                   Produit
                 </label>
                 <div className="relative">
-                  <input
-                    type="text"
-                    value={productSearchTerm}
-                    onChange={(e) => {
-                      setProductSearchTerm(e.target.value);
-                      setShowProductDropdown(true);
-                    }}
-                    placeholder="Rechercher un produit..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    onFocus={() => setShowProductDropdown(true)}
-                  />
-                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                  <ProductSearch onSearch={(q) => { setProductSearchTerm(q); setShowProductDropdown(true); }} initialQuery={productSearchTerm} />
                 </div>
                 
                 {showProductDropdown && filteredProducts.length > 0 && (
@@ -853,12 +1006,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
                           <div className="font-medium">{product.name}</div>
                           <div className="text-sm text-gray-500">SKU: {product.sku}</div>
                           <div className="text-sm text-gray-500">
-                            Prix: {formatCurrency(product.retail_price || 0)}
-                            {product.stock !== undefined && (
-                              <span className={`ml-2 ${product.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                Stock: {product.stock}
-                              </span>
-                            )}
+                            Prix: {formatCurrency(docCustomerType === 'pro' ? Number((product as any).pro_price || 0) : Number((product as any).retail_price || 0))}
                           </div>
                         </li>
                       ))}
@@ -1086,6 +1234,17 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quoteId, onSaved }) => {
               </div>
             </div>
           </div>
+        </div>
+        {/* Bouton d'action en bas */}
+        <div className="mt-6 flex justify-end">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            <Save size={18} />
+            Enregistrer
+          </button>
         </div>
       </form>
     </div>

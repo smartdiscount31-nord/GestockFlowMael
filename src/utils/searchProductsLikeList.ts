@@ -9,9 +9,11 @@ export interface ProductSearchResult {
   id: string;
   name: string;
   sku: string;
-  selling_price?: number;
-  purchase_price?: number;
-  stock_quantity?: number;
+  retail_price?: number | null;
+  purchase_price_with_fees?: number | null;
+  pro_price?: number | null;
+  vat_type?: 'normal' | 'margin' | string | null;
+  stock?: number | null;
 }
 
 /**
@@ -35,7 +37,7 @@ export async function searchProductsLikeList(
 
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, sku, selling_price, purchase_price')
+      .select('id, name, sku, retail_price, pro_price, purchase_price_with_fees, vat_type')
       .or(`name.ilike.${searchTerm},sku.ilike.${searchTerm}`)
       .limit(limit);
 
@@ -61,7 +63,7 @@ export async function searchProductsBySKU(sku: string): Promise<ProductSearchRes
   try {
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, sku, selling_price, purchase_price')
+      .select('id, name, sku, retail_price, pro_price, purchase_price_with_fees, vat_type')
       .eq('sku', sku)
       .maybeSingle();
 
@@ -92,7 +94,7 @@ export async function searchProductsByName(
 
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, sku, selling_price, purchase_price')
+      .select('id, name, sku, retail_price, pro_price, purchase_price_with_fees, vat_type')
       .ilike('name', searchTerm)
       .limit(limit);
 

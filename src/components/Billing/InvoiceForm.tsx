@@ -79,6 +79,10 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
   const [docVatRegime, setDocVatRegime] = useState<'normal' | 'margin'>('normal');
   const [selectedProductForNewItem, setSelectedProductForNewItem] = useState<ProductWithStock | null>(null);
   const [viewAfterSave, setViewAfterSave] = useState<boolean>(false);
+  // UI/UX: accordéon + saisie manuelle adresses
+  const [isClientSectionCollapsed, setIsClientSectionCollapsed] = useState(false);
+  const [billingManual, setBillingManual] = useState(false);
+  const [shippingManual, setShippingManual] = useState(false);
 
   // Serial (IMEI) selection for PAM parents under VAT regime
   const [serialOptions, setSerialOptions] = useState<ProductWithStock[]>([]);
@@ -266,7 +270,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
     const base =
       docCustomerType === 'pro'
         ? Number((selectedProductForNewItem as any).pro_price || 0)
-        : Number(selectedProductForNewItem.retail_price || 0);
+        : Number((selectedProductForNewItem as any).retail_price || 0);
     const taxRate = docVatRegime === 'margin' ? 0 : 20;
     setNewItem(prev => {
       const qty = prev.quantity || 1;
@@ -318,6 +322,10 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
     setDocCustomerType(cg as 'pro' | 'particulier');
     setCustomerSearchTerm('');
     setShowCustomerDropdown(false);
+    // Replier la section client après sélection
+    setIsClientSectionCollapsed(true);
+    setBillingManual(false);
+    setShippingManual(false);
     
     // Set default addresses if available
     if (customer.addresses && customer.addresses.length > 0) {
@@ -418,7 +426,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
     const base =
       docCustomerType === 'pro'
         ? Number((product as any).pro_price || 0)
-        : Number(product.retail_price || 0);
+        : Number((product as any).retail_price || 0);
     const taxRate = docVatRegime === 'margin' ? 0 : 20;
 
     setSelectedProductForNewItem(product);
@@ -870,12 +878,68 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
       <form className="space-y-8">
         {/* Customer and Invoice Details Section */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center">
-            <User size={20} className="mr-2" />
-            Informations client et facture
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold flex items-center">
+              <User size={20} className="mr-2" />
+              Informations client et facture
+            </h2>
+            <button
+              type="button"
+              onClick={() => setIsClientSectionCollapsed(v => !v)}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              title={isClientSectionCollapsed ? 'Déplier' : 'Replier'}
+            >
+              {isClientSectionCollapsed ? 'Déplier' : 'Replier'}
+            </button>
+          </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Résumé lorsqu'on replie la section */}
+          {isClientSectionCollapsed && selectedCustomer && (
+            <div className="p-3 mb-4 bg-gray-50 border rounded-md">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="font-medium">{selectedCustomer.name}</div>
+                  {selectedCustomer.email && <div className="text-sm text-gray-600">{selectedCustomer.email}</div>}
+                  {selectedCustomer.phone && <div className="text-sm text-gray-600">{selectedCustomer.phone}</div>}
+                </div>
+                <span className={`h-fit px-2 py-1 rounded-full text-xs ${docCustomerType === 'pro' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                  {docCustomerType === 'pro' ? 'Pro' : 'Particulier'}
+                </span>
+              </div>
+              {(formData.billing_address_json || formData.shipping_address_json) && (
+                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-700">
+                  {formData.billing_address_json && (
+                    <div>
+                      <div className="font-medium">Facturation</div>
+                      <div>{formData.billing_address_json.line1}</div>
+                      {formData.billing_address_json.line2 && <div>{formData.billing_address_json.line2}</div>}
+                      <div>{formData.billing_address_json.zip} {formData.billing_address_json.city}</div>
+                      <div>{formData.billing_address_json.country}</div>
+                    </div>
+                  )}
+                  {formData.shipping_address_json && (
+                    <div>
+                      <div className="font-medium">Livraison</div>
+                      <div>{formData.shipping_address_json.line1}</div>
+                      {formData.shipping_address_json.line2 && <div>{formData.shipping_address_json.line2}</div>}
+                      <div>{formData.shipping_address_json.zip} {formData.shipping_address_json.city}</div>
+                      <div>{formData.shipping_address_json.country}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="mt-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => setIsClientSectionCollapsed(false)}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Modifier
+                </button>
+              </div>
+            </div>
+          )}
+          <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isClientSectionCollapsed ? 'hidden' : ''}`}>
             {/* Customer Selection */}
             <div className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1194,12 +1258,81 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
           </div>
           
           {/* Addresses Section */}
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className={`mt-6 grid grid-cols-1 md:grid-cols-2 gap-6 ${isClientSectionCollapsed ? 'hidden' : ''}`}>
             {/* Billing Address */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Adresse de facturation
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  Adresse de facturation
+                </label>
+                <label className="text-xs text-gray-600 flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={billingManual}
+                    onChange={(e) => setBillingManual(e.target.checked)}
+                  />
+                  Saisie manuelle
+                </label>
+              </div>
+              {billingManual && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                  <input
+                    className="px-3 py-2 border rounded-md col-span-2"
+                    placeholder="Ligne 1"
+                    value={formData.billing_address_json?.line1 || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        billing_address_json: { ...(prev.billing_address_json as any) || {}, line1: e.target.value } as any
+                      }))
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-md col-span-2"
+                    placeholder="Ligne 2"
+                    value={formData.billing_address_json?.line2 || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        billing_address_json: { ...(prev.billing_address_json as any) || {}, line2: e.target.value } as any
+                      }))
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-md"
+                    placeholder="Code postal"
+                    value={formData.billing_address_json?.zip || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        billing_address_json: { ...(prev.billing_address_json as any) || {}, zip: e.target.value } as any
+                      }))
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-md"
+                    placeholder="Ville"
+                    value={formData.billing_address_json?.city || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        billing_address_json: { ...(prev.billing_address_json as any) || {}, city: e.target.value } as any
+                      }))
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-md col-span-2"
+                    placeholder="Pays"
+                    value={formData.billing_address_json?.country || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        billing_address_json: { ...(prev.billing_address_json as any) || {}, country: e.target.value } as any
+                      }))
+                    }
+                  />
+                </div>
+              )}
               {selectedCustomer && selectedCustomer.addresses && selectedCustomer.addresses.length > 0 ? (
                 <select
                   onChange={(e) => {
@@ -1250,9 +1383,78 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
             
             {/* Shipping Address */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Adresse de livraison
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  Adresse de livraison
+                </label>
+                <label className="text-xs text-gray-600 flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={shippingManual}
+                    onChange={(e) => setShippingManual(e.target.checked)}
+                  />
+                  Saisie manuelle
+                </label>
+              </div>
+              {shippingManual && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                  <input
+                    className="px-3 py-2 border rounded-md col-span-2"
+                    placeholder="Ligne 1"
+                    value={formData.shipping_address_json?.line1 || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        shipping_address_json: { ...(prev.shipping_address_json as any) || {}, line1: e.target.value } as any
+                      }))
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-md col-span-2"
+                    placeholder="Ligne 2"
+                    value={formData.shipping_address_json?.line2 || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        shipping_address_json: { ...(prev.shipping_address_json as any) || {}, line2: e.target.value } as any
+                      }))
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-md"
+                    placeholder="Code postal"
+                    value={formData.shipping_address_json?.zip || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        shipping_address_json: { ...(prev.shipping_address_json as any) || {}, zip: e.target.value } as any
+                      }))
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-md"
+                    placeholder="Ville"
+                    value={formData.shipping_address_json?.city || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        shipping_address_json: { ...(prev.shipping_address_json as any) || {}, city: e.target.value } as any
+                      }))
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-md col-span-2"
+                    placeholder="Pays"
+                    value={formData.shipping_address_json?.country || ''}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        shipping_address_json: { ...(prev.shipping_address_json as any) || {}, country: e.target.value } as any
+                      }))
+                    }
+                  />
+                </div>
+              )}
               {selectedCustomer && selectedCustomer.addresses && selectedCustomer.addresses.length > 0 ? (
                 <select
                   onChange={(e) => {
@@ -1363,14 +1565,20 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                               Prix: {formatCurrency(
                                 (docCustomerType === 'pro'
                                   ? (product as any).pro_price || 0
-                                  : product.retail_price || 0
+                                  : (product as any).retail_price || 0
                                 )
                               )}
-                              {product.stock !== undefined && (
-                                <span className={`ml-2 ${product.stock > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                  Stock: {product.stock}
-                                </span>
-                              )}
+                              {(() => {
+                                const s: any = (product as any).stock;
+                                const stockVal = Array.isArray(s)
+                                  ? (s as any[]).reduce((sum: number, it: any) => sum + (it?.quantity || 0), 0)
+                                  : Number(s ?? 0);
+                                return (
+                                  <span className={`ml-2 ${stockVal > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    Stock: {stockVal}
+                                  </span>
+                                );
+                              })()}
                             </div>
                           </li>
                         ))}
@@ -1645,6 +1853,28 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
               </div>
             </div>
           </div>
+        </div>
+        {/* Boutons d'action en bas */}
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={handleSubmit}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            disabled={isLoading}
+          >
+            <Save size={18} />
+            {isLoading ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setViewAfterSave(true); handleSubmit(); }}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
+            disabled={isLoading}
+            title="Enregistrer puis ouvrir la visualisation"
+          >
+            <Save size={18} />
+            {isLoading ? 'Ouverture…' : 'Enregistrer et visualiser'}
+          </button>
         </div>
       </form>
 

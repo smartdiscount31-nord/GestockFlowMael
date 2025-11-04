@@ -8,11 +8,13 @@
  * name,customer_group,email,phone,zone,siren,billing_line1,billing_line2,billing_zip,billing_city,billing_country,billing_region,shipping_same_as_billing,shipping_line1,shipping_line2,shipping_zip,shipping_city,shipping_country,shipping_region
  */
 
-import React, { useRef } from 'react';
+import React, { useRef, useMemo, useState } from 'react';
 import Papa from 'papaparse';
+import type { ParseResult } from 'papaparse';
 import type { Customer } from '../../types/supabase';
 import { supabase } from '../../lib/supabase';
 import { useCSVImport } from '../../hooks/useCSVImport';
+import { useCustomerStore } from '../../store/customerStore';
 
 interface CustomerListProps {
   customers?: Customer[];
@@ -44,6 +46,28 @@ function normalizeGroup(v: any): 'pro' | 'particulier' {
 export function CustomerList({ customers = [], onNew, onEdit, onView }: CustomerListProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { importState, startImport, incrementProgress, setImportSuccess, setImportError, closeDialog } = useCSVImport();
+  const { fetchCustomers } = useCustomerStore();
+
+  // Recherche + filtres
+  const [search, setSearch] = useState('');
+  const [groupFilter, setGroupFilter] = useState<'all' | 'particulier' | 'pro'>('all');
+
+  const filteredCustomers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (customers || []).filter((c: any) => {
+      // Filtre groupe
+      if (groupFilter !== 'all') {
+        const g = ((c?.customer_group || '') as string).toLowerCase() === 'pro' ? 'pro' : 'particulier';
+        if (g !== groupFilter) return false;
+      }
+      // Filtre texte
+      if (!q) return true;
+      const name = (c?.name || '').toLowerCase();
+      const email = ((c?.email || '') as string).toLowerCase();
+      const phone = ((c?.phone || '') as string).toLowerCase();
+      return name.includes(q) || email.includes(q) || phone.includes(q);
+    });
+  }, [customers, search, groupFilter]);
 
   const handleClickImport = () => {
     fileInputRef.current?.click();
@@ -55,11 +79,28 @@ export function CustomerList({ customers = [], onNew, onEdit, onView }: Customer
     e.currentTarget.value = '';
     if (!file) return;
 
+    // Détection du séparateur (prend en charge , ; ou tab) et forçage des guillemets
+    const head = await file.slice(0, 2048).text();
+    const counts = {
+      ',': (head.match(/,/g) || []).length,
+      ';': (head.match(/;/g) || []).length,
+      '\t': (head.match(/\t/g) || []).length,
+    };
+    let delimiter: ',' | ';' | '\t' = ',';
+    if (counts[';'] >= counts[','] && counts[';'] >= counts['\t']) {
+      delimiter = ';';
+    } else if (counts['\t'] >= counts[','] && counts['\t'] >= counts[';']) {
+      delimiter = '\t';
+    }
+
     Papa.parse<CsvRow>(file, {
       header: true,
       skipEmptyLines: 'greedy',
-      complete: async (results) => {
-        const rows = (results.data || []).filter((r) => Object.keys(r || {}).length > 0);
+      delimiter,
+      quoteChar: '"',
+      escapeChar: '"',
+      complete: async (results: ParseResult<CsvRow>) => {
+        const rows: CsvRow[] = ((results.data as CsvRow[]) || []).filter((r: CsvRow) => Object.keys(r || {}).length > 0);
         if (rows.length === 0) {
           setImportError([{ line: 0, message: 'Fichier vide ou en-têtes introuvables.' }]);
           return;
@@ -72,7 +113,7 @@ export function CustomerList({ customers = [], onNew, onEdit, onView }: Customer
 
         for (let i = 0; i < rows.length; i++) {
           const lineNo = i + 2; // 1 header + 1-based
-          const r = rows[i] || {};
+          const r: CsvRow = rows[i] || {};
 
           try {
             // Extract client
@@ -177,11 +218,12 @@ export function CustomerList({ customers = [], onNew, onEdit, onView }: Customer
         if (errors.length > 0) {
           setImportError(errors);
         } else {
+          try { await fetchCustomers(); } catch {}
           setImportSuccess(`Import terminé (${processed} clients).`);
         }
       },
-      error: (err) => {
-        setImportError([{ line: 0, message: `Erreur de parsing CSV: ${err?.message || String(err)}` }]);
+      error: (error: any, _file: any) => {
+        setImportError([{ line: 0, message: `Erreur de parsing CSV: ${error?.message || String(error)}` }]);
       },
     });
   };
@@ -194,6 +236,26 @@ export function CustomerList({ customers = [], onNew, onEdit, onView }: Customer
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Clients</h2>
         <div className="flex items-center gap-2">
+          {/* Recherche */}
+          <div className="hidden md:flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Rechercher (nom, email, téléphone)…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <select
+              value={groupFilter}
+              onChange={(e) => setGroupFilter(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              title="Filtrer par groupe"
+            >
+              <option value="all">Tous</option>
+              <option value="particulier">Particulier</option>
+              <option value="pro">Professionnel</option>
+            </select>
+          </div>
           <button
             onClick={onNew}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
@@ -267,7 +329,7 @@ export function CustomerList({ customers = [], onNew, onEdit, onView }: Customer
       )}
 
       {/* List */}
-      {customers.length === 0 ? (
+      {filteredCustomers.length === 0 ? (
         <div className="text-center py-12 bg-white border rounded-lg">
           <p className="text-gray-500 mb-3">Aucun client trouvé</p>
           <div className="flex items-center justify-center gap-2">
@@ -306,7 +368,7 @@ export function CustomerList({ customers = [], onNew, onEdit, onView }: Customer
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {customers.map((customer) => (
+              {filteredCustomers.map((customer) => (
                 <tr
                   key={customer.id}
                   onClick={() => onView?.(customer.id)}
