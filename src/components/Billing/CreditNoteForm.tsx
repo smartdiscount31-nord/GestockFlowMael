@@ -44,8 +44,8 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
   const [filteredInvoices, setFilteredInvoices] = useState<InvoiceWithDetails[]>([]);
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
   const [newItem, setNewItem] = useState<Partial<CreditNoteItemInsert>>({
-    invoice_item_id: '',
-    product_id: '',
+    invoice_item_id: undefined,
+    product_id: undefined,
     description: '',
     quantity: 1,
     unit_price: 0,
@@ -67,7 +67,7 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
       fetchCreditNote(creditNoteId);
     } else if (invoiceId) {
       console.log(`Pre-selecting invoice with ID: ${invoiceId}`);
-      fetchInvoice(invoiceId);
+      fetchInvoice(invoiceId as string);
     }
   }, [creditNoteId, invoiceId]);
   
@@ -108,7 +108,7 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
       
       // Set items
       if (data.items) {
-        setItems(data.items.map(item => ({
+        setItems(data.items.map((item: any) => ({
           id: item.id,
           invoice_item_id: item.invoice_item_id,
           product_id: item.product_id,
@@ -266,8 +266,8 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
     
     setItems(prev => [...prev, itemToAdd]);
     setNewItem({
-      invoice_item_id: '',
-      product_id: '',
+      invoice_item_id: undefined,
+      product_id: undefined,
       description: '',
       quantity: 1,
       unit_price: 0,
@@ -298,6 +298,9 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
     setItems(prev => prev.filter((_, i) => i !== index));
   };
   
+  // Normalize optional UUID fields: convert empty string or undefined -> null
+  const toNullUuid = (v?: string | null) => (v && String(v).trim() !== '' ? v : null);
+
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -354,8 +357,8 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
             .from('credit_note_items')
             .insert(itemsToAdd.map(item => ({
               credit_note_id: creditNoteId,
-              invoice_item_id: item.invoice_item_id,
-              product_id: item.product_id,
+              invoice_item_id: toNullUuid(item.invoice_item_id as any),
+              product_id: toNullUuid(item.product_id as any),
               description: item.description,
               quantity: item.quantity,
               unit_price: item.unit_price,
@@ -371,8 +374,8 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
           const { error: updateItemError } = await supabase
             .from('credit_note_items')
             .update({
-              invoice_item_id: item.invoice_item_id,
-              product_id: item.product_id,
+              invoice_item_id: toNullUuid(item.invoice_item_id as any),
+              product_id: toNullUuid(item.product_id as any),
               description: item.description,
               quantity: item.quantity,
               unit_price: item.unit_price,
@@ -424,8 +427,8 @@ export const CreditNoteForm: React.FC<CreditNoteFormProps> = ({ creditNoteId, in
             .from('credit_note_items')
             .insert(items.map(item => ({
               credit_note_id: newCreditNoteId,
-              invoice_item_id: item.invoice_item_id,
-              product_id: item.product_id,
+              invoice_item_id: toNullUuid(item.invoice_item_id as any),
+              product_id: toNullUuid(item.product_id as any),
               description: item.description,
               quantity: item.quantity,
               unit_price: item.unit_price,
