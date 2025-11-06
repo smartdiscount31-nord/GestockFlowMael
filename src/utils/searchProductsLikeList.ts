@@ -5,6 +5,12 @@
 
 import { supabase } from '../lib/supabase';
 
+export interface StockInfo {
+  stock_id: string;
+  stock_name: string;
+  quantity: number;
+}
+
 export interface ProductSearchResult {
   id: string;
   name: string;
@@ -17,6 +23,7 @@ export interface ProductSearchResult {
   pro_price?: number | null;
   vat_type?: 'normal' | 'margin' | string | null;
   stock?: number | null;
+  stocks?: StockInfo[];
 }
 
 /**
@@ -49,8 +56,52 @@ export async function searchProductsLikeList(
       throw error;
     }
 
-    console.log('[searchProductsLikeList] Found', data?.length || 0, 'results');
-    return data || [];
+    console.log('[searchProductsLikeList] Found', data?.length || 0, 'products');
+
+    // Enrichir chaque produit avec ses stocks par dépôt
+    const enrichedProducts: ProductSearchResult[] = [];
+
+    for (const product of data || []) {
+      // Déterminer l'ID effectif (parent si c'est un enfant miroir)
+      const effectiveId = (product.parent_id && !product.serial_number)
+        ? product.parent_id
+        : product.id;
+
+      console.log('[searchProductsLikeList] Fetching stocks for product:', product.sku, 'effectiveId:', effectiveId);
+
+      // Récupérer les stocks par dépôt
+      const { data: stockData, error: stockError } = await supabase
+        .from('stock_produit')
+        .select(`
+          quantite,
+          stock_id,
+          stocks:stocks(id, name)
+        `)
+        .eq('produit_id', effectiveId);
+
+      if (stockError) {
+        console.error('[searchProductsLikeList] Error fetching stocks:', stockError);
+      }
+
+      const stocks: StockInfo[] = (stockData || []).map((s: any) => ({
+        stock_id: s.stock_id,
+        stock_name: s.stocks?.name || 'Dépôt inconnu',
+        quantity: Number(s.quantite || 0)
+      }));
+
+      const totalStock = stocks.reduce((sum, s) => sum + s.quantity, 0);
+
+      console.log('[searchProductsLikeList] Product', product.sku, 'has', stocks.length, 'depot(s), total stock:', totalStock);
+
+      enrichedProducts.push({
+        ...product,
+        stock: totalStock,
+        stocks
+      });
+    }
+
+    console.log('[searchProductsLikeList] Returning', enrichedProducts.length, 'enriched products');
+    return enrichedProducts;
   } catch (error) {
     console.error('[searchProductsLikeList] Search failed:', error);
     return [];

@@ -30,7 +30,8 @@ import { ProductWithStock } from '../../types/supabase';
 import { supabase } from '../../lib/supabase';
 import { CSVImportArticles } from './CSVImportArticles';
 import { ProductSearch } from '../Search/ProductSearch';
-import { searchProductsLikeList } from '../../utils/searchProductsLikeList';
+import { searchProductsLikeList, StockInfo } from '../../utils/searchProductsLikeList';
+import { StockSelectionModal } from './StockSelectionModal';
 
 interface InvoiceFormProps {
   invoiceId?: string;
@@ -83,6 +84,8 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
   const [selectedProductForNewItem, setSelectedProductForNewItem] = useState<ProductWithStock | null>(null);
   const [vatCompatibilityError, setVatCompatibilityError] = useState<string | null>(null);
   const [viewAfterSave, setViewAfterSave] = useState<boolean>(false);
+  const [showAddToOrdersDialog, setShowAddToOrdersDialog] = useState(false);
+  const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null);
   // UI/UX: accordéon + saisie manuelle adresses
   const [isClientSectionCollapsed, setIsClientSectionCollapsed] = useState(false);
   const [billingManual, setBillingManual] = useState(false);
@@ -92,6 +95,14 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
   const [serialOptions, setSerialOptions] = useState<ProductWithStock[]>([]);
   const [showSerialModal, setShowSerialModal] = useState(false);
   const [serialLoadError, setSerialLoadError] = useState<string | null>(null);
+
+  // Stock selection for multi-depot products
+  const [showStockSelectionModal, setShowStockSelectionModal] = useState(false);
+  const [stockSelectionContext, setStockSelectionContext] = useState<{
+    product: ProductWithStock;
+    stocks: StockInfo[];
+  } | null>(null);
+  const [selectedStockForNewItem, setSelectedStockForNewItem] = useState<{ stock_id: string; stock_name: string } | null>(null);
 
   // Quick customer creation
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
@@ -461,6 +472,202 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
     }
 
     // Regular (PAU or already serialized product)
+    // Gestion de la sélection de stock
+    const productStocks = (product as any).stocks as StockInfo[] | undefined;
+    console.log('[handleProductSelect] Product stocks:', productStocks);
+
+    if (productStocks && productStocks.length > 0) {
+      // Filtrer les stocks avec quantité > 0
+      const availableStocks = productStocks.filter(s => s.quantity > 0);
+      console.log('[handleProductSelect] Available stocks:', availableStocks.length);
+
+      if (availableStocks.length === 0) {
+        alert('Aucun stock disponible pour ce produit');
+        return;
+      }
+
+      if (availableStocks.length === 1) {
+        // Un seul stock disponible: sélection automatique
+        const stock = availableStocks[0];
+        console.log('[handleProductSelect] Auto-selecting single stock:', stock.stock_name);
+        setSelectedStockForNewItem({ stock_id: stock.stock_id, stock_name: stock.stock_name });
+
+        const base =
+          docCustomerType === 'pro'
+            ? Number((product as any).pro_price || 0)
+            : Number((product as any).retail_price || 0);
+        const taxRate = invoiceVatRegime === 'margin' ? 0 : 20;
+
+        setSelectedProductForNewItem(product);
+        setNewItem({
+          product_id: product.id,
+          description: product.name,
+          quantity: 1,
+          unit_price: base,
+          tax_rate: taxRate,
+          total_price: base
+        });
+
+        setProductSearchTerm('');
+        setShowProductDropdown(false);
+        return;
+      }
+
+      // Plusieurs stocks disponibles: ouvrir la modale de sélection
+      console.log('[handleProductSelect] Multiple stocks available, opening modal');
+      setStockSelectionContext({ product, stocks: availableStocks });
+      setShowStockSelectionModal(true);
+      setProductSearchTerm('');
+      setShowProductDropdown(false);
+      return;
+    }
+
+    // Pas de gestion de stock pour ce produit
+    console.log('[handleProductSelect] No stock management for this product');
+    const base =
+      docCustomerType === 'pro'
+        ? Number((product as any).pro_price || 0)
+        : Number((product as any).retail_price || 0);
+    const taxRate = invoiceVatRegime === 'margin' ? 0 : 20;
+
+    setSelectedProductForNewItem(product);
+    setSelectedStockForNewItem(null);
+    setNewItem({
+      product_id: product.id,
+      description: product.name,
+      quantity: 1,
+      unit_price: base,
+      tax_rate: taxRate,
+      total_price: base
+    });
+
+    setProductSearchTerm('');
+    setShowProductDropdown(false);
+  };
+
+  // Handle adding invoice to orders (commandes à préparer)
+  const handleAddToOrders = async () => {
+    console.log('[handleAddToOrders] Adding invoice to orders:', savedInvoiceId);
+
+    if (!savedInvoiceId) {
+      console.error('[handleAddToOrders] No saved invoice ID');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Récupérer les détails de la facture
+      const { data: invoice, error: invoiceError } = await supabase
+        .from('invoices')
+        .select('*, customer:customers(*), items:invoice_items(*)')
+        .eq('id', savedInvoiceId)
+        .single();
+
+      if (invoiceError) throw invoiceError;
+
+      console.log('[handleAddToOrders] Invoice data:', invoice);
+
+      // Créer une commande depuis la facture
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .insert([{
+          customer_id: (invoice as any).customer_id,
+          status: 'pending',
+          date_issued: new Date().toISOString().split('T')[0],
+          total_ht: (invoice as any).total_ht,
+          total_ttc: (invoice as any).total_ttc,
+          tva: (invoice as any).tva,
+          note: `Créé depuis facture ${(invoice as any).invoice_number || savedInvoiceId}`,
+          billing_address_json: (invoice as any).billing_address_json,
+          shipping_address_json: (invoice as any).shipping_address_json
+        }])
+        .select()
+        .single();
+
+      if (orderError) throw orderError;
+
+      console.log('[handleAddToOrders] Order created:', order);
+
+      // Ajouter les items de la commande
+      const invoiceItems = (invoice as any).items || [];
+      if (invoiceItems.length > 0) {
+        const orderItems = invoiceItems.map((item: any) => ({
+          order_id: (order as any).id,
+          product_id: item.product_id,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          tax_rate: item.tax_rate,
+          total_price: item.total_price,
+          stock_id: item.stock_id
+        }));
+
+        const { error: itemsError } = await supabase
+          .from('order_items')
+          .insert(orderItems);
+
+        if (itemsError) throw itemsError;
+      }
+
+      console.log('[handleAddToOrders] Order items created successfully');
+      alert('Commande créée avec succès !');
+
+      // Navigation après création de commande
+      handlePostSaveNavigation();
+    } catch (error) {
+      console.error('[handleAddToOrders] Error:', error);
+      alert('Erreur lors de la création de la commande');
+    } finally {
+      setIsLoading(false);
+      setShowAddToOrdersDialog(false);
+    }
+  };
+
+  const handleSkipAddToOrders = () => {
+    console.log('[handleSkipAddToOrders] Skipping order creation');
+    setShowAddToOrdersDialog(false);
+    handlePostSaveNavigation();
+  };
+
+  const handlePostSaveNavigation = () => {
+    const openAfter = viewAfterSave;
+    const invoiceIdToUse = savedInvoiceId || invoiceId;
+
+    if (openAfter && invoiceIdToUse) {
+      try {
+        sessionStorage.setItem('viewInvoiceId', invoiceIdToUse);
+      } catch {}
+      if ((window as any).__setCurrentPage) {
+        (window as any).__setCurrentPage('invoice-detail');
+      }
+    } else if (onSaved && invoiceIdToUse) {
+      onSaved(invoiceIdToUse);
+    } else {
+      console.log('Redirecting to invoice list');
+      if ((window as any).__setCurrentPage) {
+        (window as any).__setCurrentPage('invoices-list');
+      }
+    }
+  };
+
+  // Handle stock selection from modal
+  const handleStockSelection = (stockId: string) => {
+    console.log('[handleStockSelection] Stock selected:', stockId);
+
+    if (!stockSelectionContext) return;
+
+    const { product, stocks } = stockSelectionContext;
+    const selectedStock = stocks.find(s => s.stock_id === stockId);
+
+    if (!selectedStock) {
+      console.error('[handleStockSelection] Selected stock not found');
+      return;
+    }
+
+    console.log('[handleStockSelection] Selected stock:', selectedStock.stock_name);
+    setSelectedStockForNewItem({ stock_id: selectedStock.stock_id, stock_name: selectedStock.stock_name });
+
+    const invoiceVatRegime = formData.vat_regime || 'normal';
     const base =
       docCustomerType === 'pro'
         ? Number((product as any).pro_price || 0)
@@ -477,8 +684,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
       total_price: base
     });
 
-    setProductSearchTerm('');
-    setShowProductDropdown(false);
+    setStockSelectionContext(null);
   };
 
   // Create customer quickly and bind to form
@@ -577,9 +783,12 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
 
     const itemToAdd = {
       ...newItem,
-      total_price: (newItem.quantity || 0) * (newItem.unit_price || 0)
+      total_price: (newItem.quantity || 0) * (newItem.unit_price || 0),
+      stock_id: selectedStockForNewItem?.stock_id || null,
+      stock_name: selectedStockForNewItem?.stock_name || null
     };
 
+    console.log('[handleAddItem] Item to add with stock:', itemToAdd);
     setItems(prev => [...prev, itemToAdd]);
     setNewItem({
       product_id: '',
@@ -590,6 +799,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
       total_price: 0
     });
     setSelectedProductForNewItem(null);
+    setSelectedStockForNewItem(null);
     setVatCompatibilityError(null);
     setProductSearchTerm('');
   };
@@ -632,7 +842,57 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
       }))
     ]);
   };
-  
+
+  // Call finalize_invoice RPC to decrement stock
+  const callFinalizeInvoice = async (invoiceIdToFinalize: string) => {
+    console.log('[callFinalizeInvoice] Starting stock decrement for invoice:', invoiceIdToFinalize);
+
+    try {
+      // Get current user ID
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        console.warn('[callFinalizeInvoice] No authenticated user found, skipping stock decrement');
+        return;
+      }
+
+      console.log('[callFinalizeInvoice] User ID:', user.id);
+
+      // Generate idempotency key to prevent duplicate executions
+      const idempotencyKey = crypto.randomUUID();
+      console.log('[callFinalizeInvoice] Idempotency key:', idempotencyKey);
+
+      // Call the RPC function
+      const { data, error } = await supabase.rpc('finalize_invoice', {
+        p_invoice_id: invoiceIdToFinalize,
+        p_user: user.id,
+        p_idempotency_key: idempotencyKey
+      });
+
+      if (error) {
+        console.error('[callFinalizeInvoice] Error calling finalize_invoice RPC:', error);
+        // Don't throw - just log the error to avoid blocking the invoice save
+        alert(`Attention: La facture a été enregistrée mais le stock n'a pas pu être décrémenté: ${error.message}`);
+        return;
+      }
+
+      console.log('[callFinalizeInvoice] Stock decremented successfully:', data);
+
+      // Check the status returned by the RPC
+      if (data?.status === 'idempotent') {
+        console.log('[callFinalizeInvoice] Operation already executed (idempotent)');
+      } else if (data?.status === 'skipped') {
+        console.log('[callFinalizeInvoice] Operation skipped:', data.reason);
+      } else if (data?.status === 'ok') {
+        console.log('[callFinalizeInvoice] Stock movements created:', data.movements);
+        alert('Stock décrémenté avec succès');
+      }
+    } catch (err) {
+      console.error('[callFinalizeInvoice] Unexpected error:', err);
+      alert(`Attention: La facture a été enregistrée mais une erreur s'est produite lors du décrément du stock: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   // Handle form submission
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) {
@@ -714,12 +974,13 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
               quantity: item.quantity,
               unit_price: item.unit_price,
               tax_rate: item.tax_rate,
-              total_price: item.total_price
+              total_price: item.total_price,
+              stock_id: item.stock_id || null
             })) as any);
-            
+
           if (addError) throw addError;
         }
-        
+
         // Items to update (those with an id)
         for (const item of items.filter(item => item.id)) {
           const { error: updateItemError } = await (supabase as any)
@@ -730,10 +991,11 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
               quantity: (item as any).quantity,
               unit_price: (item as any).unit_price,
               tax_rate: (item as any).tax_rate,
-              total_price: (item as any).total_price
+              total_price: (item as any).total_price,
+              stock_id: (item as any).stock_id || null
             } as any)
             .eq('id' as any, (item as any).id as any);
-            
+
           if (updateItemError) throw updateItemError;
         }
         
@@ -752,6 +1014,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
         }
 
         console.log('Invoice updated successfully');
+
+        // Appeler finalize_invoice pour décrementer le stock
+        await callFinalizeInvoice(invoiceId);
 
         // Post-save navigation
         if (openAfter) {
@@ -809,30 +1074,21 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
               quantity: item.quantity,
               unit_price: item.unit_price,
               tax_rate: item.tax_rate,
-              total_price: item.total_price
+              total_price: item.total_price,
+              stock_id: item.stock_id || null
             })) as any);
-            
+
           if (itemsError) throw itemsError;
         }
 
         console.log('Invoice and items saved successfully');
 
-        // Post-save navigation
-        if (openAfter) {
-          try {
-            sessionStorage.setItem('viewInvoiceId', newInvoiceId);
-          } catch {}
-          if ((window as any).__setCurrentPage) {
-            (window as any).__setCurrentPage('invoice-detail');
-          }
-        } else if (onSaved) {
-          onSaved(newInvoiceId);
-        } else {
-          console.log('Redirecting to invoice list');
-          if ((window as any).__setCurrentPage) {
-            (window as any).__setCurrentPage('invoices-list');
-          }
-        }
+        // Appeler finalize_invoice pour décrementer le stock
+        await callFinalizeInvoice(newInvoiceId);
+
+        // Proposer d'ajouter aux commandes à préparer
+        setSavedInvoiceId(newInvoiceId);
+        setShowAddToOrdersDialog(true);
       }
     } catch (err) {
       console.error('Error saving invoice:', err);
@@ -1676,17 +1932,24 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                                 )
                               )}
                               {(() => {
-                                const s: any = (product as any).stock;
-                                const stockVal = Array.isArray(s)
-                                  ? (s as any[]).reduce((sum: number, it: any) => sum + (it?.quantity || 0), 0)
-                                  : Number(s ?? 0);
+                                const totalStock = Number((product as any).stock ?? 0);
                                 return (
-                                  <span className={`ml-2 ${stockVal > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    Stock: {stockVal}
+                                  <span className={`ml-2 font-semibold ${totalStock > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    Stock total: {totalStock}
                                   </span>
                                 );
                               })()}
                             </div>
+                            {/* Affichage des stocks par dépôt */}
+                            {(product as any).stocks && (product as any).stocks.length > 0 && (
+                              <div className="mt-1 pl-4 border-l-2 border-gray-200">
+                                {(product as any).stocks.map((stockInfo: any) => (
+                                  <div key={stockInfo.stock_id} className="text-xs text-gray-600">
+                                    📦 {stockInfo.stock_name}: <span className={stockInfo.quantity > 0 ? 'text-green-600 font-medium' : 'text-red-600'}>{stockInfo.quantity}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </li>
                         );
                       })}
@@ -1716,6 +1979,13 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                   placeholder="Description de l'article"
                   required
                 />
+                {/* Affichage du dépôt sélectionné */}
+                {selectedStockForNewItem && (
+                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+                    <span className="font-medium text-blue-900">📦 Dépôt:</span>{' '}
+                    <span className="text-blue-700">{selectedStockForNewItem.stock_name}</span>
+                  </div>
+                )}
               </div>
             </div>
             
@@ -1850,6 +2120,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                     Description
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Dépôt
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Quantité
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1877,6 +2150,15 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                           onChange={(e) => handleUpdateItem(index, 'description', e.target.value)}
                           className="w-full px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                         />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {(item as any).stock_name ? (
+                          <span className="text-sm text-gray-700 bg-blue-50 px-2 py-1 rounded">
+                            📦 {(item as any).stock_name}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <input
@@ -1926,7 +2208,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
                       Aucun article ajouté
                     </td>
                   </tr>
@@ -2109,6 +2391,52 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoiceId, onSaved }) 
                 onClick={() => setShowSerialModal(false)}
               >
                 Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stock Selection Modal */}
+      {showStockSelectionModal && stockSelectionContext && (
+        <StockSelectionModal
+          isOpen={showStockSelectionModal}
+          productName={stockSelectionContext.product.name}
+          productSku={stockSelectionContext.product.sku}
+          stocks={stockSelectionContext.stocks}
+          selectedStockId={selectedStockForNewItem?.stock_id}
+          onSelect={handleStockSelection}
+          onClose={() => {
+            setShowStockSelectionModal(false);
+            setStockSelectionContext(null);
+          }}
+        />
+      )}
+
+      {/* Add to Orders Dialog */}
+      {showAddToOrdersDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              ✅ Facture enregistrée avec succès !
+            </h3>
+            <p className="text-gray-700 mb-6">
+              Souhaitez-vous ajouter cette facture aux commandes à préparer ?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={handleSkipAddToOrders}
+                disabled={isLoading}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Non, merci
+              </button>
+              <button
+                onClick={handleAddToOrders}
+                disabled={isLoading}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {isLoading ? 'Création...' : 'Oui, ajouter'}
               </button>
             </div>
           </div>

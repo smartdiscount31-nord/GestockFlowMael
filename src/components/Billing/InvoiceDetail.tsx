@@ -306,28 +306,31 @@ export const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ invoiceId, onBack 
             <p className="font-medium">{invoice.customer?.name}</p>
             {invoice.customer?.email && <p>{invoice.customer.email}</p>}
             {invoice.customer?.phone && <p>{invoice.customer.phone}</p>}
-            
-            {/* Billing Address */}
-            {invoice.billing_address_json && (
-              <div className="mt-2">
-                <p className="font-medium">Adresse de facturation:</p>
-                <p>{invoice.billing_address_json.line1}</p>
-                {invoice.billing_address_json.line2 && <p>{invoice.billing_address_json.line2}</p>}
-                <p>{invoice.billing_address_json.zip} {invoice.billing_address_json.city}</p>
-                <p>{invoice.billing_address_json.country}</p>
-              </div>
-            )}
-            
-            {/* Shipping Address */}
-            {invoice.shipping_address_json && (
-              <div className="mt-2">
-                <p className="font-medium">Adresse de livraison:</p>
-                <p>{invoice.shipping_address_json.line1}</p>
-                {invoice.shipping_address_json.line2 && <p>{invoice.shipping_address_json.line2}</p>}
-                <p>{invoice.shipping_address_json.zip} {invoice.shipping_address_json.city}</p>
-                <p>{invoice.shipping_address_json.country}</p>
-              </div>
-            )}
+
+            {/* Addresses side by side */}
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              {/* Billing Address */}
+              {invoice.billing_address_json && (
+                <div>
+                  <p className="font-medium text-sm">Adresse de facturation:</p>
+                  <p className="text-sm">{invoice.billing_address_json.line1}</p>
+                  {invoice.billing_address_json.line2 && <p className="text-sm">{invoice.billing_address_json.line2}</p>}
+                  <p className="text-sm">{invoice.billing_address_json.zip} {invoice.billing_address_json.city}</p>
+                  <p className="text-sm">{invoice.billing_address_json.country}</p>
+                </div>
+              )}
+
+              {/* Shipping Address */}
+              {invoice.shipping_address_json && (
+                <div>
+                  <p className="font-medium text-sm">Adresse de livraison:</p>
+                  <p className="text-sm">{invoice.shipping_address_json.line1}</p>
+                  {invoice.shipping_address_json.line2 && <p className="text-sm">{invoice.shipping_address_json.line2}</p>}
+                  <p className="text-sm">{invoice.shipping_address_json.zip} {invoice.shipping_address_json.city}</p>
+                  <p className="text-sm">{invoice.shipping_address_json.country}</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         
