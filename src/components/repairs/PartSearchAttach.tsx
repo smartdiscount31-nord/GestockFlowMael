@@ -88,7 +88,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
   };
 
   const searchProducts = async (term: string) => {
-    if (!term || term.trim().length < 2) {
+    if (!term || term.trim().length < 1) {
       setSearchResults([]);
       return;
     }
@@ -106,7 +106,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
           sku,
           purchase_price,
           vat_type,
-          product_stocks!inner (
+          product_stocks (
             id,
             quantity,
             stock:stocks (
