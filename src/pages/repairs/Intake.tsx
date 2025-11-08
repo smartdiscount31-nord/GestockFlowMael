@@ -223,12 +223,12 @@ export function Intake() {
       if (formData.sketch) {
         console.log('[Intake] Upload du schéma');
         try {
-          const schemaBuffer = Buffer.from(formData.sketch, 'base64');
+          const schemaBlob = await (await fetch(`data:image/png;base64,${formData.sketch}`)).blob();
           const schemaFileName = `repair-tickets/${ticketId}/diagram-${Date.now()}.png`;
 
           const { data: schemaUpload, error: schemaError } = await supabase.storage
             .from('app-assets')
-            .upload(schemaFileName, schemaBuffer, {
+            .upload(schemaFileName, schemaBlob, {
               contentType: 'image/png',
               upsert: false,
             });
@@ -258,12 +258,12 @@ export function Intake() {
       if (formData.patternImage) {
         console.log('[Intake] Upload du schéma clavier');
         try {
-          const patternBuffer = Buffer.from(formData.patternImage, 'base64');
+          const patternBlob = await (await fetch(`data:image/png;base64,${formData.patternImage}`)).blob();
           const patternFileName = `repair-tickets/${ticketId}/pattern-${Date.now()}.png`;
 
           const { data: patternUpload, error: patternError } = await supabase.storage
             .from('app-assets')
-            .upload(patternFileName, patternBuffer, {
+            .upload(patternFileName, patternBlob, {
               contentType: 'image/png',
               upsert: false,
             });
