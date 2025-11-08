@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Search, Plus, Package, ShoppingCart, AlertCircle, X } from 'lucide-react';
+import { searchProductsLikeList } from '../../utils/searchProductsLikeList';
 
 interface PartSearchAttachProps {
   onPartsChange: (parts: AttachedPart[]) => void;
@@ -98,45 +99,9 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     setError(null);
 
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select(`
-          id,
-          name,
-          sku,
-          purchase_price,
-          vat_type,
-          product_stocks (
-            id,
-            quantity,
-            stock:stocks (
-              id,
-              name
-            )
-          )
-        `)
-        .or(`name.ilike.%${term}%,sku.ilike.%${term}%`)
-        .limit(10);
-
-      if (error) {
-        console.error('[PartSearchAttach] Erreur recherche:', error);
-        setSearchResults([]);
-        setError('Erreur lors de la recherche');
-      } else {
-        console.log('[PartSearchAttach] Résultats trouvés:', data?.length);
-        // Enrichir les données avec le total des stocks
-        const enrichedData = (data || []).map(product => {
-          const stocks = product.product_stocks || [];
-          const totalStock = stocks.reduce((sum: number, ps: any) => sum + (ps.quantity || 0), 0);
-          return {
-            ...product,
-            stocks,
-            totalStock
-          };
-        });
-        console.log('[PartSearchAttach] Données enrichies avec stocks:', enrichedData);
-        setSearchResults(enrichedData);
-      }
+      const results = await searchProductsLikeList(term, 10);
+      console.log('[PartSearchAttach] Résultats trouvés (via helper):', results?.length);
+      setSearchResults(results || []);
     } catch (err) {
       console.error('[PartSearchAttach] Exception recherche:', err);
       setSearchResults([]);
@@ -162,8 +127,8 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
 
     // Préparer les stocks: tous les dépôts pour affichage + dépôts éligibles pour la quantité demandée
     const rawStocks = (product.stocks || []).map((ps: any) => ({
-      id: ps.stock?.id,
-      name: ps.stock?.name,
+      id: ps.stock_id,
+      name: ps.stock_name,
       quantity: ps.quantity || 0,
     }));
 
@@ -233,7 +198,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
       stock_name: stockInfo?.name || null,
       quantity,
       action,
-      purchase_price: selectedProduct.purchase_price,
+      purchase_price: Number(selectedProduct.purchase_price_with_fees ?? selectedProduct.purchase_price ?? 0),
       vat_regime: selectedProduct.vat_type,
     };
 
@@ -559,7 +524,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
           {!isSearching && searchResults.length > 0 && (
             <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 mb-4 max-h-64 overflow-y-auto">
               {searchResults.map((product) => {
-                const hasStock = product.totalStock > 0;
+                const hasStock = (product.stock || 0) > 0;
                 const stockList = product.stocks || [];
 
                 return (
@@ -576,14 +541,14 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
                     <div className="mt-1 flex flex-wrap gap-2">
                       {stockList.map((ps: any) => (
                         <span
-                          key={ps.id}
+                          key={ps.stock_id}
                           className={`text-xs px-2 py-0.5 rounded ${
                             ps.quantity > 0
                               ? 'bg-green-100 text-green-700'
                               : 'bg-gray-100 text-gray-500'
                           }`}
                         >
-                          {ps.stock?.name}: {ps.quantity}
+                          {ps.stock_name}: {ps.quantity}
                         </span>
                       ))}
                       {stockList.length === 0 && (
