@@ -199,36 +199,57 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const handleSelectProduct = (product: any) => {
+  const handleSelectProduct = async (product: any) => {
     console.log('[PartSearchAttach] Produit sélectionné:', product);
-    setSelectedProduct(product);
+    // Calculer l'ID effectif (parent si miroir non sérialisé, sinon id)
+    const effectiveId = (product.parent_id && !product.serial_number) ? product.parent_id : product.id;
+    // Conserver effective_id dans l'objet sélectionné pour l'attach
+    setSelectedProduct({ ...product, effective_id: effectiveId });
     setSearchTerm('');
     setSearchResults([]);
 
-    // Préparer les stocks: tous les dépôts pour affichage + dépôts éligibles pour la quantité demandée
-    const rawStocks = (product.stocks || []).map((ps: any) => ({
-      id: ps.stock_id,
-      name: ps.stock_name,
-      quantity: ps.quantity || 0,
-    }));
+    try {
+      // Charger les stocks depuis product_stocks pour être cohérent avec la RPC fn_repair_reserve_stock
+      const { data: psRows, error: psErr } = await supabase
+        .from('product_stocks')
+        .select('stock_id, quantity, stock:stocks(id, name)')
+        .eq('product_id', effectiveId);
 
-    console.log('[PartSearchAttach] Stocks (tous dépôts) pour ce produit:', rawStocks);
-    setDisplayStocks(rawStocks);
+      if (psErr) {
+        console.error('[PartSearchAttach] Erreur lecture product_stocks:', psErr);
+      }
 
-    // par défaut quantité = 1
-    const initialQty = 1;
-    const eligible = rawStocks.filter((s: any) => (s.quantity || 0) >= initialQty);
-    setEligibleStocks(eligible);
+      const rawStocks = (psRows || []).map((r: any) => ({
+        id: r.stock_id,
+        name: r.stock?.name,
+        quantity: Number(r.quantity || 0),
+      }));
 
-    // Présélectionner le premier dépôt éligible s'il existe
-    if (eligible.length > 0) {
-      setSelectedStock(eligible[0].id);
-    } else {
+      console.log('[PartSearchAttach] Stocks (product_stocks) pour ce produit effectif:', rawStocks);
+      setDisplayStocks(rawStocks);
+
+      // par défaut quantité = 1
+      const initialQty = 1;
+      const eligible = rawStocks.filter((s: any) => (s.quantity || 0) >= initialQty);
+      setEligibleStocks(eligible);
+
+      // Présélectionner le premier dépôt éligible s'il existe
+      if (eligible.length > 0) {
+        setSelectedStock(eligible[0].id);
+      } else {
+        setSelectedStock('');
+      }
+
+      // Réinitialiser la quantité
+      setQuantity(initialQty);
+    } catch (e) {
+      console.error('[PartSearchAttach] Exception lors du chargement des stocks:', e);
+      // Fallback minimal: vider l'affichage
+      setDisplayStocks([]);
+      setEligibleStocks([]);
       setSelectedStock('');
+      setQuantity(1);
     }
-
-    // Réinitialiser la quantité
-    setQuantity(initialQty);
   };
 
   const handleAttachPart = (action: 'reserve' | 'order') => {
@@ -271,7 +292,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
 
     const newPart: AttachedPart = {
       id: `${Date.now()}-${selectedProduct.id}`,
-      product_id: selectedProduct.id,
+      product_id: selectedProduct.effective_id || selectedProduct.id,
       product_name: selectedProduct.name,
       product_sku: selectedProduct.sku,
       stock_id: action === 'reserve' ? selectedStock : null,
