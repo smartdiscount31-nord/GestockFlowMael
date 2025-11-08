@@ -85,24 +85,23 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
   }, []);
 
   const findHitDigit = (x: number, y: number): Digit | null => {
+    const SAFE = 0.9; // marge de sécurité pour éviter les faux positifs
     for (const k of keys) {
       const dx = x - k.x;
       const dy = y - k.y;
-      if (Math.sqrt(dx * dx + dy * dy) <= k.r) return k.digit;
+      if (Math.sqrt(dx * dx + dy * dy) <= k.r * SAFE) return k.digit;
     }
     return null;
   };
 
   const addDigitIfNew = (d: Digit) => {
     setSequence((prev) => {
-      if (prev.includes(d)) return prev; // éviter doublons 
+      if (prev.includes(d)) return prev; // éviter doublons
       const next = [...prev, d];
       if (onChange) onChange(next.join('-'));
       return next;
     });
   };
-
-  
 
   const handleDown = (evt: any) => {
     setIsDrawing(true);
@@ -110,7 +109,10 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
     const p = stage.getPointerPosition();
     if (!p) return;
     const d = findHitDigit(p.x, p.y);
-    if (d) addDigitIfNew(d);
+    if (!d) return;
+    // Nouveau geste: repartir de zéro puis ajouter le premier chiffre
+    setSequence([d]);
+    onChange && onChange(String(d));
   };
 
   const handleMove = (evt: any) => {
