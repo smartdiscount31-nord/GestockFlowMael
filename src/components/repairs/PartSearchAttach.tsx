@@ -44,6 +44,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [selectedStock, setSelectedStock] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
+  const [availableStocks, setAvailableStocks] = useState<any[]>([]);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const [quickCreateData, setQuickCreateData] = useState<QuickCreateFormData>({
     sku: '',
@@ -98,7 +99,21 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     try {
       const { data, error } = await supabase
         .from('products')
-        .select('id, name, sku, purchase_price, vat_type')
+        .select(`
+          id,
+          name,
+          sku,
+          purchase_price,
+          vat_type,
+          product_stocks!inner (
+            id,
+            quantity,
+            stock:stocks (
+              id,
+              name
+            )
+          )
+        `)
         .or(`name.ilike.%${term}%,sku.ilike.%${term}%`)
         .limit(10);
 
@@ -107,8 +122,19 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
         setSearchResults([]);
         setError('Erreur lors de la recherche');
       } else {
-        console.log('[PartSearchAttach] Résultats trouvés:', data.length);
-        setSearchResults(data || []);
+        console.log('[PartSearchAttach] Résultats trouvés:', data?.length);
+        // Enrichir les données avec le total des stocks
+        const enrichedData = (data || []).map(product => {
+          const stocks = product.product_stocks || [];
+          const totalStock = stocks.reduce((sum: number, ps: any) => sum + (ps.quantity || 0), 0);
+          return {
+            ...product,
+            stocks,
+            totalStock
+          };
+        });
+        console.log('[PartSearchAttach] Données enrichies avec stocks:', enrichedData);
+        setSearchResults(enrichedData);
       }
     } catch (err) {
       console.error('[PartSearchAttach] Exception recherche:', err);
@@ -132,6 +158,29 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     setSelectedProduct(product);
     setSearchTerm('');
     setSearchResults([]);
+
+    // Filtrer les stocks disponibles (quantité > 0)
+    const availStocks = (product.stocks || [])
+      .filter((ps: any) => ps.quantity > 0)
+      .map((ps: any) => ({
+        id: ps.stock?.id,
+        name: ps.stock?.name,
+        quantity: ps.quantity,
+        product_stock_id: ps.id
+      }));
+
+    console.log('[PartSearchAttach] Stocks disponibles pour ce produit:', availStocks);
+    setAvailableStocks(availStocks);
+
+    // Présélectionner le premier stock disponible s'il existe
+    if (availStocks.length > 0) {
+      setSelectedStock(availStocks[0].id);
+    } else {
+      setSelectedStock('');
+    }
+
+    // Réinitialiser la quantité
+    setQuantity(1);
   };
 
   const handleAttachPart = (action: 'reserve' | 'order') => {
@@ -150,10 +199,26 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
       return;
     }
 
+    // Validation de la quantité pour les réservations
+    if (action === 'reserve') {
+      const selectedStockInfo = availableStocks.find(s => s.id === selectedStock);
+      if (!selectedStockInfo) {
+        setError('Stock sélectionné introuvable');
+        return;
+      }
+
+      if (quantity > selectedStockInfo.quantity) {
+        setError(`Quantité insuffisante. Maximum disponible: ${selectedStockInfo.quantity}`);
+        return;
+      }
+
+      console.log('[PartSearchAttach] Validation OK - Stock disponible:', selectedStockInfo.quantity, 'Quantité demandée:', quantity);
+    }
+
     console.log('[PartSearchAttach] Ajout pièce, action:', action);
 
     const stockInfo = action === 'reserve'
-      ? stocks.find(s => s.id === selectedStock)
+      ? availableStocks.find(s => s.id === selectedStock)
       : null;
 
     const newPart: AttachedPart = {
@@ -174,6 +239,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     onPartsChange(updatedParts);
 
     setSelectedProduct(null);
+    setAvailableStocks([]);
     setQuantity(1);
     setError(null);
 
@@ -487,18 +553,44 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
           )}
 
           {!isSearching && searchResults.length > 0 && (
-            <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 mb-4 max-h-48 overflow-y-auto">
-              {searchResults.map((product) => (
-                <button
-                  key={product.id}
-                  type="button"
-                  onClick={() => handleSelectProduct(product)}
-                  className="w-full p-3 text-left hover:bg-gray-50 transition-colors"
-                >
-                  <p className="font-medium text-gray-900">{product.name}</p>
-                  <p className="text-sm text-gray-600">SKU: {product.sku}</p>
-                </button>
-              ))}
+            <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 mb-4 max-h-64 overflow-y-auto">
+              {searchResults.map((product) => {
+                const hasStock = product.totalStock > 0;
+                const stockList = product.stocks || [];
+
+                return (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => handleSelectProduct(product)}
+                    className="w-full p-3 text-left hover:bg-gray-50 transition-colors"
+                  >
+                    <p className="font-medium text-gray-900">{product.name}</p>
+                    <p className="text-sm text-gray-600">SKU: {product.sku}</p>
+
+                    {/* Affichage des stocks disponibles */}
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {stockList.map((ps: any) => (
+                        <span
+                          key={ps.id}
+                          className={`text-xs px-2 py-0.5 rounded ${
+                            ps.quantity > 0
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-500'
+                          }`}
+                        >
+                          {ps.stock?.name}: {ps.quantity}
+                        </span>
+                      ))}
+                      {stockList.length === 0 && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">
+                          Aucun stock
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -521,37 +613,72 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
             <p className="text-sm text-gray-600">SKU: {selectedProduct.sku}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Quantité</label>
-              <input
-                type="number"
-                min="1"
-                value={quantity}
-                onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
+          {/* Afficher les stocks disponibles */}
+          {availableStocks.length > 0 ? (
+            <>
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm font-medium text-green-800 mb-2">Stocks disponibles :</p>
+                <div className="flex flex-wrap gap-2">
+                  {availableStocks.map((stock) => (
+                    <span key={stock.id} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">
+                      {stock.name}: {stock.quantity}
+                    </span>
+                  ))}
+                </div>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Stock</label>
-              <select
-                value={selectedStock}
-                onChange={(e) => setSelectedStock(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              >
-                {stocks.map((stock) => (
-                  <option key={stock.id} value={stock.id}>{stock.name}</option>
-                ))}
-              </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Quantité</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={availableStocks.find(s => s.id === selectedStock)?.quantity || 999}
+                    value={quantity}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 1;
+                      const maxQty = availableStocks.find(s => s.id === selectedStock)?.quantity || 999;
+                      setQuantity(Math.min(val, maxQty));
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                  {availableStocks.find(s => s.id === selectedStock) && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Max: {availableStocks.find(s => s.id === selectedStock)?.quantity}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Stock</label>
+                  <select
+                    value={selectedStock}
+                    onChange={(e) => setSelectedStock(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  >
+                    {availableStocks.map((stock) => (
+                      <option key={stock.id} value={stock.id}>
+                        {stock.name} ({stock.quantity} dispo)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+              <p className="text-sm text-orange-800">
+                ⚠️ Aucun stock disponible pour ce produit. Vous pouvez uniquement le commander.
+              </p>
             </div>
-          </div>
+          )}
 
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => handleAttachPart('reserve')}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
+              disabled={availableStocks.length === 0}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               <Package size={18} />
               <span>Attribuer</span>
@@ -570,6 +697,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
             type="button"
             onClick={() => {
               setSelectedProduct(null);
+              setAvailableStocks([]);
               setQuantity(1);
             }}
             className="w-full px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
