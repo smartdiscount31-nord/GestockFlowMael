@@ -4,8 +4,7 @@
  */
 
 import React from 'react';
-import { Stage, Layer, Circle, Line, Text } from 'react-konva';
-import { Download, Trash2 } from 'lucide-react';
+import { Stage, Layer, Circle, Text, Arrow } from 'react-konva';
 
 interface PatternKeypadProps {
   onChange?: (pattern: string) => void; // ex: "1-5-9-0"
@@ -103,17 +102,7 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
     });
   };
 
-  const toPoints = React.useMemo(() => {
-    const map = new Map(keys.map((k) => [k.digit, k] as const));
-    const coords: number[] = [];
-    for (const d of sequence) {
-      const k = map.get(d);
-      if (k) {
-        coords.push(k.x, k.y);
-      }
-    }
-    return coords;
-  }, [keys, sequence]);
+  
 
   const handleDown = (evt: any) => {
     setIsDrawing(true);
@@ -133,7 +122,13 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
     if (d) addDigitIfNew(d);
   };
 
-  const handleUp = () => setIsDrawing(false);
+  const handleUp = () => {
+    setIsDrawing(false);
+    // Export automatique de l'image si une séquence existe
+    if (sequence.length > 0) {
+      handleExport();
+    }
+  };
 
   const handleClear = () => {
     setSequence([]);
@@ -153,9 +148,8 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
 
   return (
     <div className="bg-white rounded-lg p-4 border border-gray-200">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold text-gray-900">Clavier schéma</h3>
-        <div className="text-sm text-gray-600">Séquence: {sequence.join('-') || '—'}</div>
+      <div className="mb-2">
+        <h3 className="font-semibold text-gray-900 text-sm">Clavier schéma</h3>
       </div>
 
       <div ref={containerRef} className="border-2 border-gray-300 rounded-lg bg-gray-50 overflow-hidden mb-3">
@@ -171,16 +165,27 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
           onTouchEnd={handleUp}
         >
           <Layer>
-            {/* Tracés entre les touches */}
-            {toPoints.length >= 4 && (
-              <Line
-                points={toPoints}
-                stroke="#2563EB"
-                strokeWidth={4}
-                lineCap="round"
-                lineJoin="round"
-              />
-            )}
+            {/* Flèches entre les touches consécutives */}
+            {sequence.length >= 2 && sequence.map((d, i) => {
+              if (i === 0) return null;
+              const map = new Map(keys.map((k) => [k.digit, k] as const));
+              const a = map.get(sequence[i - 1]);
+              const b = map.get(d);
+              if (!a || !b) return null;
+              return (
+                <Arrow
+                  key={`arrow-${i}`}
+                  points={[a.x, a.y, b.x, b.y]}
+                  stroke="#2563EB"
+                  fill="#2563EB"
+                  strokeWidth={3}
+                  pointerLength={10}
+                  pointerWidth={10}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              );
+            })}
 
             {/* Touches */}
             {keys.map((k) => {
@@ -232,21 +237,13 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
         </Stage>
       </div>
 
-      <div className="flex gap-2">
+      <div className="text-right">
         <button
           type="button"
           onClick={handleClear}
-          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200"
+          className="text-sm text-gray-600 hover:text-gray-800 underline"
         >
-          <Trash2 size={18} /> Effacer
-        </button>
-        <button
-          type="button"
-          onClick={handleExport}
-          disabled={sequence.length === 0}
-          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
-        >
-          <Download size={18} /> Exporter l'image
+          Réinitialiser
         </button>
       </div>
 
