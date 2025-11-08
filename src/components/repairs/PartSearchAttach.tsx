@@ -8,6 +8,85 @@ import { supabase } from '../../lib/supabase';
 import { Search, Plus, Package, ShoppingCart, AlertCircle, X } from 'lucide-react';
 import { searchProductsLikeList } from '../../utils/searchProductsLikeList';
 
+// Helpers pour aligner l'ordre des résultats sur la page Produits
+const normalizeQuery = (s: string): string => {
+  try {
+    return (s || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\u00A0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  } catch {
+    return (s || '')
+      .replace(/\u00A0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+};
+
+const orderResultsByRelevance = (rows: any[], query: string): any[] => {
+  const q = normalizeQuery(query || '');
+  const tokens = q.split(' ').filter(Boolean).slice(0, 5);
+  if (q.length < 2 || tokens.length === 0) return rows || [];
+
+  const qualifiers = ['pro', 'max', 'promax', 'plus', 'mini', 'ultra'];
+
+  const scored = (rows || []).map((p: any) => {
+    const nameNorm = normalizeQuery(p?.name || '');
+    const words = nameNorm.split(/[^a-z0-9]+/).filter(Boolean);
+    const wordSet = new Set(words);
+
+    let base = 0;
+    let bonus = 0;
+
+    for (const t of tokens) {
+      if (t.length <= 2) {
+        const wordHit = wordSet.has(t);
+        base += wordHit ? 1 : 0;
+        bonus += wordHit ? 2 : 0;
+      } else {
+        const hit = nameNorm.includes(t);
+        const wordHit = wordSet.has(t);
+        base += hit ? 1 : 0;
+        bonus += wordHit ? 1 : 0;
+      }
+    }
+
+    let adjacencyBonus = 0;
+    const hasIphone = wordSet.has('iphone');
+    const modelToken = tokens.find(t => t === 'x' || /^\d{1,2}$/.test(t));
+    if (hasIphone && modelToken) {
+      const idxIphone = words.indexOf('iphone');
+      const idxModel = words.indexOf(modelToken);
+      if (idxIphone >= 0 && idxModel >= 0) {
+        const distance = Math.abs(idxIphone - idxModel);
+        if (distance === 1) adjacencyBonus += 6;
+        else if (distance > 1) adjacencyBonus -= Math.min(distance - 1, 3);
+      }
+    }
+
+    let qualPenalty = 0;
+    for (const qf of qualifiers) {
+      if (wordSet.has(qf) && !tokens.includes(qf)) qualPenalty += 1;
+    }
+
+    const requestedQualifiers = qualifiers.filter(qf => tokens.includes(qf));
+    let reqQualBonus = 0;
+    for (const rq of requestedQualifiers) {
+      if (wordSet.has(rq)) reqQualBonus += (rq === 'max' ? 4 : 3);
+    }
+
+    const score = base * 10 + bonus + adjacencyBonus - qualPenalty + reqQualBonus;
+    return { p, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map(x => x.p);
+};
+
 interface PartSearchAttachProps {
   onPartsChange: (parts: AttachedPart[]) => void;
   initialParts?: AttachedPart[];
@@ -101,7 +180,8 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     try {
       const results = await searchProductsLikeList(term, 10);
       console.log('[PartSearchAttach] Résultats trouvés (via helper):', results?.length);
-      setSearchResults(results || []);
+      const ordered = orderResultsByRelevance(results || [], term);
+      setSearchResults(ordered);
     } catch (err) {
       console.error('[PartSearchAttach] Exception recherche:', err);
       setSearchResults([]);
@@ -671,7 +751,8 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
             <button
               type="button"
               onClick={() => handleAttachPart('order')}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700"
+              disabled={!!selectedStock}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               <ShoppingCart size={18} />
               <span>À commander</span>
