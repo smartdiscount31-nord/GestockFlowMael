@@ -10,6 +10,7 @@ import { CGVConsent, ConsentData } from '../../components/repairs/CGVConsent';
 import { MediaCapture, MediaFile } from '../../components/repairs/MediaCapture';
 import { DamageSketch } from '../../components/repairs/DamageSketch';
 import { PartSearchAttach, AttachedPart } from '../../components/repairs/PartSearchAttach';
+import { PatternKeypad } from '../../components/repairs/PatternKeypad';
 import { supabase } from '../../lib/supabase';
 import { ChevronLeft, ChevronRight, Check, Save, AlertCircle } from 'lucide-react';
 
@@ -21,6 +22,9 @@ interface IntakeFormData {
   consent: ConsentData | null;
   media: MediaFile[];
   sketch: string | null;
+  // Ajouts pour clavier schéma
+  patternImage: string | null;
+  patternSequence: string | null;
   parts: AttachedPart[];
 }
 
@@ -30,6 +34,8 @@ const INITIAL_FORM_DATA: IntakeFormData = {
   consent: null,
   media: [],
   sketch: null,
+  patternImage: null,
+  patternSequence: null,
   parts: [],
 };
 
@@ -39,6 +45,7 @@ export function Intake() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [sketchMode, setSketchMode] = useState<'draw' | 'keypad'>('draw');
 
   console.log('[Intake] Rendered, step:', currentStep, 'formData:', formData);
 
@@ -194,7 +201,10 @@ export function Intake() {
           imei: formData.device?.imei || null,
           serial_number: formData.device?.serial_number || null,
           pin_code: formData.device?.pin_code || null,
-          issue_description: formData.device?.issue_description,
+          // Ajouter la séquence du clavier dans la description si présente
+          issue_description: formData.device?.issue_description
+            ? `${formData.device?.issue_description}${formData.patternSequence ? ` [Pattern: ${formData.patternSequence}]` : ''}`
+            : (formData.patternSequence ? `[Pattern: ${formData.patternSequence}]` : ''),
           power_state: formData.device?.power_state,
           cgv_accepted: formData.consent?.cgv_accepted || false,
           signature_base64: formData.consent?.signature_base64 || null,
@@ -211,7 +221,7 @@ export function Intake() {
       const ticketId = createResult.data.ticket.id;
       console.log('[Intake] Ticket créé:', ticketId);
 
-      // Upload du schéma si présent
+      // Upload du schéma (dessin) si présent
       if (formData.sketch) {
         console.log('[Intake] Upload du schéma');
         try {
@@ -243,6 +253,40 @@ export function Intake() {
           }
         } catch (err) {
           console.error('[Intake] Erreur upload schéma:', err);
+        }
+      }
+
+      // Upload du schéma clavier (pattern) si présent
+      if (formData.patternImage) {
+        console.log('[Intake] Upload du schéma clavier');
+        try {
+          const patternBuffer = Buffer.from(formData.patternImage, 'base64');
+          const patternFileName = `repair-tickets/${ticketId}/pattern-${Date.now()}.png`;
+
+          const { data: patternUpload, error: patternError } = await supabase.storage
+            .from('app-assets')
+            .upload(patternFileName, patternBuffer, {
+              contentType: 'image/png',
+              upsert: false,
+            });
+
+          if (!patternError) {
+            const { data: patternPublicUrl } = supabase.storage
+              .from('app-assets')
+              .getPublicUrl(patternFileName);
+
+            await supabase
+              .from('repair_media')
+              .insert({
+                repair_id: ticketId,
+                kind: 'pattern',
+                file_url: patternPublicUrl.publicUrl,
+              });
+
+            console.log('[Intake] Schéma clavier uploadé');
+          }
+        } catch (err) {
+          console.error('[Intake] Erreur upload schéma clavier:', err);
         }
       }
 
@@ -378,13 +422,45 @@ export function Intake() {
 
       case 4:
         return (
-          <DamageSketch
-            onSketchChange={(sketch) => {
-              console.log('[Intake] Schéma mis à jour');
-              setFormData({ ...formData, sketch });
-            }}
-            initialSketch={formData.sketch}
-          />
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSketchMode('draw')}
+                className={`flex-1 px-3 py-2 rounded border ${sketchMode === 'draw' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+              >
+                Dessin
+              </button>
+              <button
+                type="button"
+                onClick={() => setSketchMode('keypad')}
+                className={`flex-1 px-3 py-2 rounded border ${sketchMode === 'keypad' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+              >
+                Clavier
+              </button>
+            </div>
+
+            {sketchMode === 'draw' ? (
+              <DamageSketch
+                onSketchChange={(sketch) => {
+                  console.log('[Intake] Schéma (dessin) mis à jour');
+                  setFormData({ ...formData, sketch });
+                }}
+                initialSketch={formData.sketch}
+              />
+            ) : (
+              <PatternKeypad
+                onChange={(pattern) => {
+                  console.log('[Intake] Séquence clavier:', pattern);
+                  setFormData({ ...formData, patternSequence: pattern || null });
+                }}
+                onExport={(imageBase64) => {
+                  console.log('[Intake] Image schéma clavier capturée');
+                  setFormData({ ...formData, patternImage: imageBase64 });
+                }}
+              />
+            )}
+          </div>
         );
 
       case 5:
