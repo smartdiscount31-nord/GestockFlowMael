@@ -32,3 +32,8 @@ status = 200
 # Runs daily at 19:00 Europe/Paris (18:00 UTC winter, 17:00 UTC summer) to send daily summary of unfinished tasks
 [functions."agenda-daily-summary"]
   schedule = "0 18 * * *"
+
+# Scheduled Netlify Function: repairs-daily-17h-digest
+# Runs daily at 17:00 Europe/Paris (16:00 UTC) to send digest of parts to order for repairs
+[functions."repairs-daily-17h-digest"]
+  schedule = "0 16 * * *"
