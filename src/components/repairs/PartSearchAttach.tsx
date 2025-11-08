@@ -44,7 +44,8 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [selectedStock, setSelectedStock] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
-  const [availableStocks, setAvailableStocks] = useState<any[]>([]);
+  const [displayStocks, setDisplayStocks] = useState<any[]>([]);
+  const [eligibleStocks, setEligibleStocks] = useState<any[]>([]);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const [quickCreateData, setQuickCreateData] = useState<QuickCreateFormData>({
     sku: '',
@@ -159,28 +160,30 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     setSearchTerm('');
     setSearchResults([]);
 
-    // Filtrer les stocks disponibles (quantité > 0)
-    const availStocks = (product.stocks || [])
-      .filter((ps: any) => ps.quantity > 0)
-      .map((ps: any) => ({
-        id: ps.stock?.id,
-        name: ps.stock?.name,
-        quantity: ps.quantity,
-        product_stock_id: ps.id
-      }));
+    // Préparer les stocks: tous les dépôts pour affichage + dépôts éligibles pour la quantité demandée
+    const rawStocks = (product.stocks || []).map((ps: any) => ({
+      id: ps.stock?.id,
+      name: ps.stock?.name,
+      quantity: ps.quantity || 0,
+    }));
 
-    console.log('[PartSearchAttach] Stocks disponibles pour ce produit:', availStocks);
-    setAvailableStocks(availStocks);
+    console.log('[PartSearchAttach] Stocks (tous dépôts) pour ce produit:', rawStocks);
+    setDisplayStocks(rawStocks);
 
-    // Présélectionner le premier stock disponible s'il existe
-    if (availStocks.length > 0) {
-      setSelectedStock(availStocks[0].id);
+    // par défaut quantité = 1
+    const initialQty = 1;
+    const eligible = rawStocks.filter((s: any) => (s.quantity || 0) >= initialQty);
+    setEligibleStocks(eligible);
+
+    // Présélectionner le premier dépôt éligible s'il existe
+    if (eligible.length > 0) {
+      setSelectedStock(eligible[0].id);
     } else {
       setSelectedStock('');
     }
 
     // Réinitialiser la quantité
-    setQuantity(1);
+    setQuantity(initialQty);
   };
 
   const handleAttachPart = (action: 'reserve' | 'order') => {
@@ -201,7 +204,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
 
     // Validation de la quantité pour les réservations
     if (action === 'reserve') {
-      const selectedStockInfo = availableStocks.find(s => s.id === selectedStock);
+      const selectedStockInfo = displayStocks.find((s: any) => s.id === selectedStock);
       if (!selectedStockInfo) {
         setError('Stock sélectionné introuvable');
         return;
@@ -218,7 +221,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     console.log('[PartSearchAttach] Ajout pièce, action:', action);
 
     const stockInfo = action === 'reserve'
-      ? availableStocks.find(s => s.id === selectedStock)
+      ? displayStocks.find((s: any) => s.id === selectedStock)
       : null;
 
     const newPart: AttachedPart = {
@@ -239,7 +242,8 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     onPartsChange(updatedParts);
 
     setSelectedProduct(null);
-    setAvailableStocks([]);
+    setDisplayStocks([]);
+    setEligibleStocks([]);
     setQuantity(1);
     setError(null);
 
@@ -613,71 +617,87 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
             <p className="text-sm text-gray-600">SKU: {selectedProduct.sku}</p>
           </div>
 
-          {/* Afficher les stocks disponibles */}
-          {availableStocks.length > 0 ? (
-            <>
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm font-medium text-green-800 mb-2">Stocks disponibles :</p>
-                <div className="flex flex-wrap gap-2">
-                  {availableStocks.map((stock) => (
-                    <span key={stock.id} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">
-                      {stock.name}: {stock.quantity}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Quantité</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max={availableStocks.find(s => s.id === selectedStock)?.quantity || 999}
-                    value={quantity}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value) || 1;
-                      const maxQty = availableStocks.find(s => s.id === selectedStock)?.quantity || 999;
-                      setQuantity(Math.min(val, maxQty));
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                  />
-                  {availableStocks.find(s => s.id === selectedStock) && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Max: {availableStocks.find(s => s.id === selectedStock)?.quantity}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Stock</label>
-                  <select
-                    value={selectedStock}
-                    onChange={(e) => setSelectedStock(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+          {/* Stocks et sélection de dépôt */}
+          <div className="space-y-3">
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+              <p className="text-sm font-medium text-gray-800 mb-2">Stocks (tous dépôts) :</p>
+              <div className="flex flex-wrap gap-2">
+                {displayStocks.map((s) => (
+                  <span
+                    key={s.id}
+                    className={`text-xs px-2 py-1 rounded ${s.quantity > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
                   >
-                    {availableStocks.map((stock) => (
-                      <option key={stock.id} value={stock.id}>
-                        {stock.name} ({stock.quantity} dispo)
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    {s.name}: {s.quantity}
+                  </span>
+                ))}
+                {displayStocks.length === 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">Aucun stock</span>
+                )}
               </div>
-            </>
-          ) : (
-            <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
-              <p className="text-sm text-orange-800">
-                ⚠️ Aucun stock disponible pour ce produit. Vous pouvez uniquement le commander.
-              </p>
             </div>
-          )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantité</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={quantity}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 1;
+                    const nextQty = Math.max(1, val);
+                    setQuantity(nextQty);
+                    // recalculer les dépôts éligibles
+                    const eligible = (displayStocks || []).filter((s) => (s.quantity || 0) >= nextQty);
+                    setEligibleStocks(eligible);
+                    if (!eligible.find((s) => s.id === selectedStock)) {
+                      setSelectedStock(eligible[0]?.id || '');
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+                {selectedStock && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Max: {displayStocks.find((s) => s.id === selectedStock)?.quantity ?? 0}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Stock</label>
+                <select
+                  value={selectedStock}
+                  onChange={(e) => setSelectedStock(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                >
+                  {eligibleStocks.map((stock) => (
+                    <option key={stock.id} value={stock.id}>
+                      {stock.name} ({stock.quantity} dispo)
+                    </option>
+                  ))}
+                </select>
+                {eligibleStocks.length === 0 && (
+                  <p className="text-xs text-orange-700 mt-2">
+                    Aucun dépôt n'a une quantité suffisante pour la quantité demandée.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {displayStocks.reduce((sum, s) => sum + (s.quantity || 0), 0) === 0 && (
+              <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                <p className="text-sm text-orange-800">
+                  ⚠️ Aucun stock disponible pour ce produit. Vous pouvez uniquement le commander.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => handleAttachPart('reserve')}
-              disabled={availableStocks.length === 0}
+              disabled={eligibleStocks.length === 0}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               <Package size={18} />
@@ -697,7 +717,8 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
             type="button"
             onClick={() => {
               setSelectedProduct(null);
-              setAvailableStocks([]);
+              setDisplayStocks([]);
+              setEligibleStocks([]);
               setQuantity(1);
             }}
             className="w-full px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
