@@ -8,7 +8,6 @@ import { ClientForm } from '../../components/repairs/ClientForm';
 import { DeviceForm, DeviceData } from '../../components/repairs/DeviceForm';
 import { CGVConsent, ConsentData } from '../../components/repairs/CGVConsent';
 import { MediaCapture, MediaFile } from '../../components/repairs/MediaCapture';
-import { DamageSketch } from '../../components/repairs/DamageSketch';
 import { PartSearchAttach, AttachedPart } from '../../components/repairs/PartSearchAttach';
 import { PatternKeypad } from '../../components/repairs/PatternKeypad';
 import { supabase } from '../../lib/supabase';
@@ -45,7 +44,6 @@ export function Intake() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [sketchMode, setSketchMode] = useState<'draw' | 'keypad'>('draw');
 
   console.log('[Intake] Rendered, step:', currentStep, 'formData:', formData);
 
@@ -422,45 +420,16 @@ export function Intake() {
 
       case 4:
         return (
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setSketchMode('draw')}
-                className={`flex-1 px-3 py-2 rounded border ${sketchMode === 'draw' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
-              >
-                Dessin
-              </button>
-              <button
-                type="button"
-                onClick={() => setSketchMode('keypad')}
-                className={`flex-1 px-3 py-2 rounded border ${sketchMode === 'keypad' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
-              >
-                Clavier
-              </button>
-            </div>
-
-            {sketchMode === 'draw' ? (
-              <DamageSketch
-                onSketchChange={(sketch) => {
-                  console.log('[Intake] Schéma (dessin) mis à jour');
-                  setFormData({ ...formData, sketch });
-                }}
-                initialSketch={formData.sketch}
-              />
-            ) : (
-              <PatternKeypad
-                onChange={(pattern) => {
-                  console.log('[Intake] Séquence clavier:', pattern);
-                  setFormData({ ...formData, patternSequence: pattern || null });
-                }}
-                onExport={(imageBase64) => {
-                  console.log('[Intake] Image schéma clavier capturée');
-                  setFormData({ ...formData, patternImage: imageBase64 });
-                }}
-              />
-            )}
-          </div>
+          <PatternKeypad
+            onChange={(pattern) => {
+              console.log('[Intake] Séquence clavier:', pattern);
+              setFormData({ ...formData, patternSequence: pattern || null });
+            }}
+            onExport={(imageBase64) => {
+              console.log('[Intake] Image schéma clavier capturée');
+              setFormData({ ...formData, patternImage: imageBase64 });
+            }}
+          />
         );
 
       case 5:
