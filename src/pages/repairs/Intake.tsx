@@ -277,7 +277,7 @@ export function Intake() {
               .from('repair_media')
               .insert({
                 repair_id: ticketId,
-                kind: 'pattern',
+                kind: 'diagram',
                 file_url: patternPublicUrl.publicUrl,
               });
 
