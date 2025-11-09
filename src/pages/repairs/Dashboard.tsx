@@ -89,7 +89,6 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase.rpc('fn_repair_counts');
       if (!error && Array.isArray(data) && data.length > 0) {
-        // Normaliser en StatusCount[] (au cas où la RPC retourne {status,count})
         const norm: StatusCount[] = ALL_STATUSES.map(s => ({
           status: s,
           count: Number((data.find((r: any) => String(r.status) === s)?.count) || 0)
@@ -97,13 +96,13 @@ export default function Dashboard() {
         setStatusCounts(norm);
         return;
       }
-    } catch (e) {
+    } catch {
       // ignore, fallback below
     }
-    // Fallback local: calculer depuis tickets si fourni, sinon depuis l’état actuel
-    const base = (fallbackFrom && fallbackFrom.length > 0) ? fallbackFrom : tickets;
+    // Fallback local: toujours calculer depuis la liste fournie (ou vide)
+    const base = Array.isArray(fallbackFrom) ? fallbackFrom : [];
     setStatusCounts(computeCounts(base));
-  }, [tickets, computeCounts]);
+  }, [computeCounts]);
 
   const loadTickets = useCallback(async () => {
     setIsLoading(true);
@@ -216,7 +215,7 @@ export default function Dashboard() {
 
   const totalCount = filteredTickets.filter(t => showArchived ? true : t.status !== 'archived').length;
 
-  useEffect(() => { loadTickets(); }, [loadTickets]);
+  useEffect(() => { loadTickets(); }, []);
   useEffect(() => { handleSearch(searchQuery); }, [searchQuery, tickets, handleSearch]);
 
   const tabTickets = filteredTickets.filter(t => {
