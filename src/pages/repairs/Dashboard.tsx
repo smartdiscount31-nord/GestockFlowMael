@@ -1,19 +1,15 @@
 /**
- * Workshop Dashboard Page (Styled to match provided Atelier design)
+ * Workshop Dashboard Page (List view only, counters fixed, instant refresh)
  * - Header with title, total, and "Ajouter un ticket"
- * - Sticky status tabs with counts and animated underline
- * - Filters row with search + quick chips
+ * - Sticky status tabs with counts and animated underline (counters computed reliably)
+ * - Filters row with search + quick chips (UI-ready)
  * - Desktop table + Mobile cards
- * - Optional Kanban view toggle (keeps your original DnD)
+ * - Kanban view removed as requested
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { DndContext, DragEndEvent, DragOverlay, closestCorners } from '@dnd-kit/core';
-import { RefreshCw, Eye, EyeOff, Archive, Search, User as UserIcon, CalendarDays, CalendarRange, Smartphone, Laptop, Tablet } from 'lucide-react';
-import { StatusColumns } from '../../components/repairs/StatusColumns';
-import { RepairCard } from '../../components/repairs/RepairCard';
+import { RefreshCw, Archive, Search, User as UserIcon, CalendarDays, CalendarRange, Smartphone, Laptop, Tablet } from 'lucide-react';
 import { RepairModal } from '../../components/repairs/RepairModal';
-import { SearchBarWorkshop } from '../../components/repairs/SearchBarWorkshop';
 import { Toast } from '../../components/Notifications/Toast';
 import { supabase } from '../../lib/supabase';
 import useNavigate from '../../hooks/useNavigate';
@@ -40,16 +36,18 @@ interface Ticket {
   has_media: boolean;
   reserved_parts_count: number;
   to_order_parts_count: number;
+  // Séchage
+  drying_start_at?: string | null;
+  drying_duration_min?: number | null;
+  drying_end_at?: string | null;
+  drying_acknowledged_at?: string | null;
+  // Helper client-side (ms epoch)
   drying_end_time?: number;
 }
 
-interface StatusCount {
-  status: string;
-  count: number;
-}
+interface StatusCount { status: string; count: number }
 
-const STATUS_UI: Record<string, { label: string; tabColor: string; badgeBg: string; badgeText: string }>
-= {
+const STATUS_UI: Record<string, { label: string; tabColor: string; badgeBg: string; badgeText: string }> = {
   quote_todo:       { label: 'Devis à faire',       tabColor: 'text-blue-600',   badgeBg: 'bg-blue-100 dark:bg-blue-900/50',     badgeText: 'text-blue-800 dark:text-blue-300' },
   parts_to_order:   { label: 'Pièces à commander',  tabColor: 'text-amber-600',  badgeBg: 'bg-amber-100 dark:bg-amber-900/50',   badgeText: 'text-amber-800 dark:text-amber-300' },
   waiting_parts:    { label: 'Attente pièces',      tabColor: 'text-yellow-600', badgeBg: 'bg-yellow-100 dark:bg-yellow-900/50', badgeText: 'text-yellow-800 dark:text-yellow-300' },
@@ -62,6 +60,10 @@ const STATUS_UI: Record<string, { label: string; tabColor: string; badgeBg: stri
   archived:         { label: 'Archivé',             tabColor: 'text-gray-600',   badgeBg: 'bg-gray-200 dark:bg-gray-700/50',     badgeText: 'text-gray-800 dark:text-gray-300' },
 };
 
+const ALL_STATUSES = [
+  'quote_todo','parts_to_order','waiting_parts','to_repair','in_repair','drying','ready_to_return','awaiting_customer','delivered','archived'
+];
+
 export default function Dashboard() {
   const { navigateToProduct } = useNavigate();
 
@@ -71,29 +73,90 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
-  const [activeTicket, setActiveTicket] = useState<string | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [dryingTimers, setDryingTimers] = useState<Record<string, number>>({});
 
-  // New UI state
   const [activeStatus, setActiveStatus] = useState<string>('to_repair');
-  const [showKanban, setShowKanban] = useState<boolean>(false);
-
-  const statusOrder = [
-    'quote_todo','parts_to_order','waiting_parts','to_repair','in_repair','drying','ready_to_return','awaiting_customer','delivered'
-  ];
+  // Chrono séchage: état UI
+  const [nowTs, setNowTs] = useState<number>(Date.now());
+  const [alertTicket, setAlertTicket] = useState<Ticket | null>(null);
+  const [durationByTicket, setDurationByTicket] = useState<Record<string, number>>({});
+  const notifiedRef = React.useRef<Set<string>>(new Set());
 
   const displayedStatuses = showArchived
-    ? [...statusOrder, 'archived']
-    : statusOrder;
+    ? ALL_STATUSES
+    : ALL_STATUSES.filter(s => s !== 'archived');
 
-  const loadCounts = useCallback(async () => {
+  const computeCounts = useCallback((list: Ticket[]): StatusCount[] => {
+    const map: Record<string, number> = {};
+    for (const k of ALL_STATUSES) map[k] = 0;
+    for (const t of list) {
+      if (map[t.status] !== undefined) map[t.status] += 1;
+    }
+    return ALL_STATUSES.map(s => ({ status: s, count: map[s] }));
+  }, []);
+
+  const loadCounts = useCallback(async (fallbackFrom?: Ticket[]) => {
     try {
       const { data, error } = await supabase.rpc('fn_repair_counts');
-      if (!error) setStatusCounts(data || []);
-    } catch {}
-  }, []);
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const norm: StatusCount[] = ALL_STATUSES.map(s => ({
+          status: s,
+          count: Number((data.find((r: any) => String(r.status) === s)?.count) || 0)
+        }));
+        setStatusCounts(norm);
+        return;
+      }
+    } catch {
+      // ignore, fallback below
+    }
+    // Fallback local: toujours calculer depuis la liste fournie (ou vide)
+    const base = Array.isArray(fallbackFrom) ? fallbackFrom : [];
+    setStatusCounts(computeCounts(base));
+  }, [computeCounts]);
+
+  // Démarrer un chrono de séchage
+  const startDrying = async (repair_id: string, duration_min?: number) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Session non disponible');
+      const response = await fetch('/.netlify/functions/repairs-drying-start', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repair_id, duration_min })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err?.error?.message || 'Erreur démarrage séchage');
+      }
+      setToast({ message: 'Séchage démarré', type: 'success' });
+      await loadTickets();
+    } catch (e: any) {
+      setToast({ message: e?.message || 'Erreur inconnue', type: 'error' });
+    }
+  };
+
+  // Acquitter fin de séchage
+  const ackDrying = async (repair_id: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Session non disponible');
+      const response = await fetch('/.netlify/functions/repairs-drying-ack', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repair_id })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err?.error?.message || 'Erreur d\'acquittement');
+      }
+      setToast({ message: 'Fin de séchage prise en compte', type: 'success' });
+      setAlertTicket(null);
+      await loadTickets();
+    } catch (e: any) {
+      setToast({ message: e?.message || 'Erreur inconnue', type: 'error' });
+    }
+  };
 
   const loadTickets = useCallback(async () => {
     setIsLoading(true);
@@ -144,16 +207,23 @@ export default function Dashboard() {
         has_media: (mediaByTicket[t.id] || 0) > 0,
         reserved_parts_count: partsByTicket[t.id]?.reserved || 0,
         to_order_parts_count: partsByTicket[t.id]?.toOrder || 0,
-        drying_end_time: dryingTimers[t.id],
+        // Séchage
+        drying_start_at: t.drying_start_at || null,
+        drying_duration_min: typeof t.drying_duration_min === 'number' ? t.drying_duration_min : null,
+        drying_end_at: t.drying_end_at || null,
+        drying_acknowledged_at: t.drying_acknowledged_at || null,
+        drying_end_time: t.drying_end_at ? new Date(t.drying_end_at).getTime() : undefined,
       }));
 
       setTickets(enriched);
       setFilteredTickets(enriched);
+      // Compteurs: tenter RPC sinon fallback liste locale
+      await loadCounts(enriched);
     } catch {
     } finally {
       setIsLoading(false);
     }
-  }, [dryingTimers]);
+  }, [loadCounts]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
@@ -169,6 +239,15 @@ export default function Dashboard() {
   }, [tickets]);
 
   const handleStatusChange = async (repair_id: string, new_status: string) => {
+    // Optimistic update: appliquer immédiatement côté UI
+    const prevTickets = tickets;
+    const optimistic = prevTickets.map(t => t.id === repair_id ? { ...t, status: new_status } : t);
+    setTickets(optimistic);
+    // Rejouer filtre courant
+    setFilteredTickets(curr => curr.map(t => t.id === repair_id ? { ...t, status: new_status } : t));
+    // Recalculer compteurs immédiatement
+    setStatusCounts(computeCounts(optimistic));
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Session non disponible');
@@ -182,37 +261,58 @@ export default function Dashboard() {
         throw new Error(err?.error?.message || 'Erreur lors du changement de statut');
       }
       setToast({ message: 'Statut mis à jour avec succès', type: 'success' });
+      // Synchroniser avec le backend
       await loadTickets();
-      await loadCounts();
     } catch (e: any) {
+      // Rollback en cas d’erreur
+      setTickets(prevTickets);
+      setFilteredTickets(prevTickets);
+      setStatusCounts(computeCounts(prevTickets));
       setToast({ message: e?.message || 'Erreur inconnue', type: 'error' });
     }
   };
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) { setActiveTicket(null); return; }
-    const ticketId = active.id as string;
-    const newStatus = over.id as string;
-    await handleStatusChange(ticketId, newStatus);
-    setActiveTicket(null);
-  };
+  const totalCount = filteredTickets.filter(t => showArchived ? true : t.status !== 'archived').length;
 
-  const getTicketsByStatus = (status: string) => filteredTickets.filter(t => t.status === status);
-  const getStatusCount = (status: string) => statusCounts.find(c => c.status === status)?.count || 0;
-
-  const totalCount = filteredTickets.filter(t => t.status !== 'archived').length;
-
-  useEffect(() => {
-    loadCounts();
-    loadTickets();
-    const interval = setInterval(() => loadCounts(), 30000);
-    return () => clearInterval(interval);
-  }, [loadCounts, loadTickets]);
-
+  useEffect(() => { loadTickets(); }, []);
   useEffect(() => { handleSearch(searchQuery); }, [searchQuery, tickets, handleSearch]);
 
-  // Active list for the current tab
+  // Tick chaque seconde uniquement en onglet Séchage
+  useEffect(() => {
+    if (activeStatus !== 'drying') return;
+    const id = window.setInterval(() => setNowTs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [activeStatus]);
+
+  // Alerte sonore + pop-up à la fin du séchage (une seule fois par ticket)
+  const playBeep = () => {
+    try {
+      const Ctx: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 1000;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.1, ctx.currentTime);
+      o.start();
+      o.stop(ctx.currentTime + 0.2);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (activeStatus !== 'drying') return;
+    const expired = tickets.filter(t => t.status === 'drying' && t.drying_end_time && nowTs >= t.drying_end_time && !t.drying_acknowledged_at);
+    for (const t of expired) {
+      if (!notifiedRef.current.has(t.id)) {
+        notifiedRef.current.add(t.id);
+        playBeep();
+        setAlertTicket(t);
+      }
+    }
+  }, [nowTs, tickets, activeStatus]);
+
   const tabTickets = filteredTickets.filter(t => {
     if (!showArchived && t.status === 'archived') return false;
     return activeStatus ? t.status === activeStatus : true;
@@ -224,6 +324,8 @@ export default function Dashboard() {
     if (low.includes('tab') || low.includes('tablet')) return <Tablet className="inline -mt-0.5" size={16} />;
     return <Smartphone className="inline -mt-0.5" size={16} />;
   };
+
+  const getStatusCount = (status: string) => (statusCounts.find(c => c.status === status)?.count || 0);
 
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark text-[#111817] dark:text-gray-200">
@@ -278,7 +380,7 @@ export default function Dashboard() {
             <div className="flex-grow overflow-x-auto">
               <div className="flex gap-1">
                 {displayedStatuses.map(st => {
-                  const ui = STATUS_UI[st] || { label: st, tabColor: 'text-gray-600', badgeBg: 'bg-gray-200', badgeText: 'text-gray-800' };
+                  const ui = STATUS_UI[st] || { label: st, tabColor: 'text-gray-600', badgeBg: 'bg-gray-200', badgeText: 'text-gray-800' } as any;
                   const isActive = activeStatus === st;
                   return (
                     <button
@@ -303,179 +405,191 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* View toggle */}
+        {/* LIST VIEW */}
+        <div className="mt-4 md:bg-white md:dark:bg-[#182c2a] md:rounded-b-xl md:rounded-tr-xl md:shadow-sm md:overflow-hidden">
+          {/* Desktop table */}
+          <div className="overflow-x-auto hidden md:block">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-gray-50 dark:bg-[#102220] text-xs text-[#618986] dark:text-gray-400 uppercase tracking-wider">
+                <tr>
+                  <th className="px-6 py-4">Date de création</th>
+                  <th className="px-6 py-4">N° réparation</th>
+                  <th className="px-6 py-4">Client</th>
+                  <th className="px-6 py-4">Appareil</th>
+                  <th className="px-6 py-4">Panne constatée</th>
+                  <th className="px-6 py-4">Statut</th>
+                  {activeStatus === 'drying' && (
+                    <th className="px-6 py-4">Chrono</th>
+                  )}
+                  <th className="px-6 py-4">Rappel client</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tabTickets.map((t) => {
+                  const date = new Date(t.created_at);
+                  const created = `${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+                  return (
+                    <tr key={t.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#102220]">
+                      <td className="px-6 py-4 whitespace-nowrap">{created}</td>
+                      <td className="px-6 py-4">
+                        <button className="font-medium text-primary hover:underline" onClick={() => setSelectedTicket(t)}>#{t.id.substring(0,8)}</button>
+                        <p className="text-xs text-[#618986]">Ouvrir la prise en charge</p>
+                      </td>
+                      <td className="px-6 py-4">
+                        <p className="font-medium">{t.customer_name}</p>
+                        <p className="text-xs text-[#618986]">{t.customer_phone || '—'}</p>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          {deviceIconFor(t.device_brand)}
+                          <div>
+                            <p className="font-medium">{t.device_model}</p>
+                            <p className="text-xs text-[#618986]">{t.device_brand}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 max-w-xs truncate" title={t.issue_description}>{t.issue_description || '—'}</td>
+                      <td className="px-6 py-4">
+                        <select
+                          className="form-select w-full text-sm bg-gray-100 dark:bg-[#102220] border-none rounded-lg focus:ring-2 focus:ring-primary/50"
+                          value={t.status}
+                          onChange={(e) => handleStatusChange(t.id, e.target.value)}
+                        >
+                          {displayedStatuses.map(s => (
+                            <option key={s} value={s}>{STATUS_UI[s]?.label || s}</option>
+                          ))}
+                        </select>
+                      </td>
+                      {activeStatus === 'drying' && (
+                        <td className="px-6 py-4">
+                          {t.status !== 'drying' ? (
+                            <span className="text-[#618986]">—</span>
+                          ) : t.drying_end_time ? (
+                            (() => {
+                              const remainingMs = (t.drying_end_time || 0) - nowTs;
+                              if (remainingMs <= 0) {
+                                return (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-red-600">Terminé</span>
+                                    <button
+                                      onClick={() => ackDrying(t.id)}
+                                      className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                    >
+                                      J’ai pris en compte
+                                    </button>
+                                  </div>
+                                );
+                              }
+                              const minutes = Math.floor(remainingMs / 60000);
+                              const seconds = Math.floor((remainingMs % 60000) / 1000);
+                              return (
+                                <span className="text-sm font-bold text-blue-600">{minutes}:{String(seconds).padStart(2,'0')}</span>
+                              );
+                            })()
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min={1}
+                                max={480}
+                                value={durationByTicket[t.id] ?? 60}
+                                onChange={(e) => setDurationByTicket(prev => ({ ...prev, [t.id]: Math.max(1, Math.min(480, Number(e.target.value) || 60)) }))}
+                                className="w-20 px-2 py-1 border border-gray-300 rounded"
+                              />
+                              <span className="text-xs text-[#618986]">min</span>
+                              <button
+                                onClick={() => startDrying(t.id, durationByTicket[t.id] ?? 60)}
+                                className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                              >
+                                Démarrer
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      )}
+                      <td className="px-6 py-4 text-[#618986]">—</td>
+                    </tr>
+                  );
+                })}
+                {tabTickets.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-10 text-center text-[#618986]">Aucun ticket</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="space-y-4 md:hidden mt-4">
+            {tabTickets.map(t => (
+              <div key={t.id} className="bg-white dark:bg-[#182c2a] rounded-xl shadow-sm p-4 flex flex-col gap-4">
+                <div className="flex justify-between items-center text-sm">
+                  <p className="text-[#618986] dark:text-gray-400">{new Date(t.created_at).toLocaleDateString('fr-FR')} {new Date(t.created_at).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'})}</p>
+                  <button className="font-bold text-primary hover:underline" onClick={() => setSelectedTicket(t)}>#{t.id.substring(0,8)}</button>
+                </div>
+                <div className="text-base">
+                  <p className="font-medium text-[#111817] dark:text-white">{t.customer_name}</p>
+                  <p className="text-[#618986] dark:text-gray-400">{t.customer_phone || '—'}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {deviceIconFor(t.device_brand)}
+                  <div>
+                    <p className="font-medium">{t.device_model} <span className="text-sm font-normal text-[#618986] dark:text-gray-400">({t.device_brand})</span></p>
+                  </div>
+                </div>
+                <p className="text-sm text-[#618986] dark:text-gray-400 truncate">Panne: {t.issue_description || '—'}</p>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <select
+                    className="form-select flex-grow text-sm bg-gray-100 dark:bg-[#102220] border-none rounded-lg focus:ring-2 focus:ring-primary/50 h-11 min-w-[150px]"
+                    value={t.status}
+                    onChange={(e) => handleStatusChange(t.id, e.target.value)}
+                  >
+                    {displayedStatuses.map(s => (
+                      <option key={s} value={s}>{STATUS_UI[s]?.label || s}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ))}
+            {tabTickets.length === 0 && (
+              <div className="text-center text-[#618986]">Aucun ticket</div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer actions */}
         <div className="flex items-center justify-end gap-3 mt-3">
           <button
-            onClick={() => setShowKanban(false)}
-            className={`h-10 px-4 rounded-lg text-sm font-medium ${!showKanban ? 'bg-primary text-[#111817]' : 'bg-white dark:bg-[#182c2a] text-[#111817] dark:text-gray-300'}`}
-          >
-            Vue Liste
-          </button>
-          <button
-            onClick={() => setShowKanban(true)}
-            className={`h-10 px-4 rounded-lg text-sm font-medium ${showKanban ? 'bg-primary text-[#111817]' : 'bg-white dark:bg-[#182c2a] text-[#111817] dark:text-gray-300'}`}
-          >
-            Vue Kanban
-          </button>
-          <button
-            onClick={() => { loadTickets(); loadCounts(); }}
+            onClick={() => loadTickets()}
             disabled={isLoading}
             className="flex items-center gap-2 h-10 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} /> Actualiser
           </button>
         </div>
-
-        {/* LIST VIEW */}
-        {!showKanban && (
-          <div className="mt-4 md:bg-white md:dark:bg-[#182c2a] md:rounded-b-xl md:rounded-tr-xl md:shadow-sm md:overflow-hidden">
-            {/* Desktop table */}
-            <div className="overflow-x-auto hidden md:block">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-gray-50 dark:bg-[#102220] text-xs text-[#618986] dark:text-gray-400 uppercase tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Date de création</th>
-                    <th className="px-6 py-4">N° réparation</th>
-                    <th className="px-6 py-4">Client</th>
-                    <th className="px-6 py-4">Appareil</th>
-                    <th className="px-6 py-4">Panne constatée</th>
-                    <th className="px-6 py-4">Statut</th>
-                    <th className="px-6 py-4">Chrono</th>
-                    <th className="px-6 py-4">Rappel client</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tabTickets.map((t) => {
-                    const date = new Date(t.created_at);
-                    const created = `${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
-                    const ui = STATUS_UI[t.status] || STATUS_UI['to_repair'];
-                    return (
-                      <tr key={t.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#102220]">
-                        <td className="px-6 py-4 whitespace-nowrap">{created}</td>
-                        <td className="px-6 py-4">
-                          <button className="font-medium text-primary hover:underline" onClick={() => setSelectedTicket(t)}>#{t.id.substring(0,8)}</button>
-                          <p className="text-xs text-[#618986]">Ouvrir la prise en charge</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <p className="font-medium">{t.customer_name}</p>
-                          <p className="text-xs text-[#618986]">{t.customer_phone || '—'}</p>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            {deviceIconFor(t.device_brand)}
-                            <div>
-                              <p className="font-medium">{t.device_model}</p>
-                              <p className="text-xs text-[#618986]">{t.device_brand}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 max-w-xs truncate" title={t.issue_description}>{t.issue_description || '—'}</td>
-                        <td className="px-6 py-4">
-                          <select
-                            className="form-select w-full text-sm bg-gray-100 dark:bg-[#102220] border-none rounded-lg focus:ring-2 focus:ring-primary/50"
-                            value={t.status}
-                            onChange={(e) => handleStatusChange(t.id, e.target.value)}
-                          >
-                            {displayedStatuses.map(s => (
-                              <option key={s} value={s}>{STATUS_UI[s]?.label || s}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-6 py-4 text-[#618986]">—</td>
-                        <td className="px-6 py-4 text-[#618986]">—</td>
-                      </tr>
-                    );
-                  })}
-                  {tabTickets.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="px-6 py-10 text-center text-[#618986]">Aucun ticket</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile cards */}
-            <div className="space-y-4 md:hidden mt-4">
-              {tabTickets.map(t => (
-                <div key={t.id} className="bg-white dark:bg-[#182c2a] rounded-xl shadow-sm p-4 flex flex-col gap-4">
-                  <div className="flex justify-between items-center text-sm">
-                    <p className="text-[#618986] dark:text-gray-400">{new Date(t.created_at).toLocaleDateString('fr-FR')} {new Date(t.created_at).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'})}</p>
-                    <button className="font-bold text-primary hover:underline" onClick={() => setSelectedTicket(t)}>#{t.id.substring(0,8)}</button>
-                  </div>
-                  <div className="text-base">
-                    <p className="font-medium text-[#111817] dark:text-white">{t.customer_name}</p>
-                    <p className="text-[#618986] dark:text-gray-400">{t.customer_phone || '—'}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {deviceIconFor(t.device_brand)}
-                    <div>
-                      <p className="font-medium">{t.device_model} <span className="text-sm font-normal text-[#618986] dark:text-gray-400">({t.device_brand})</span></p>
-                    </div>
-                  </div>
-                  <p className="text-sm text-[#618986] dark:text-gray-400 truncate">Panne: {t.issue_description || '—'}</p>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <select
-                      className="form-select flex-grow text-sm bg-gray-100 dark:bg-[#102220] border-none rounded-lg focus:ring-2 focus:ring-primary/50 h-11 min-w-[150px]"
-                      value={t.status}
-                      onChange={(e) => handleStatusChange(t.id, e.target.value)}
-                    >
-                      {displayedStatuses.map(s => (
-                        <option key={s} value={s}>{STATUS_UI[s]?.label || s}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              ))}
-              {tabTickets.length === 0 && (
-                <div className="text-center text-[#618986]">Aucun ticket</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* KANBAN VIEW (original), kept under a toggle */}
-        {showKanban && (
-          isLoading && tickets.length === 0 ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="text-center">
-                <RefreshCw size={32} className="animate-spin text-blue-600 mx-auto mb-4" />
-                <p className="text-gray-600">Chargement des tickets...</p>
-              </div>
-            </div>
-          ) : (
-            <DndContext collisionDetection={closestCorners} onDragStart={(event) => setActiveTicket(event.active.id as string)} onDragEnd={handleDragEnd}>
-              <div className="flex gap-4 overflow-x-auto pb-4 mt-4">
-                {displayedStatuses.map((status) => (
-                  <StatusColumns
-                    key={status}
-                    status={status}
-                    label={STATUS_UI[status]?.label || status}
-                    count={getStatusCount(status)}
-                    tickets={getTicketsByStatus(status)}
-                    color={STATUS_UI[status] ? 'bg-blue-50' : 'bg-gray-50'}
-                    onTicketClick={(tMin) => setSelectedTicket(filteredTickets.find(x => x.id === tMin.id) || null)}
-                  />
-                ))}
-              </div>
-              <DragOverlay>
-                {activeTicket && (
-                  <div className="opacity-60">
-                    <RepairCard ticket={filteredTickets.find(t => t.id === activeTicket)!} onClick={() => {}} />
-                  </div>
-                )}
-              </DragOverlay>
-            </DndContext>
-          )
-        )}
       </div>
 
       {selectedTicket && (
         <RepairModal
           ticket={selectedTicket}
           onClose={() => setSelectedTicket(null)}
-          onStatusChange={() => { loadTickets(); loadCounts(); }}
+          onStatusChange={() => { loadTickets(); }}
         />
+      )}
+
+      {/* Pop-up fin de séchage */}
+      {alertTicket && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5">
+            <h3 className="text-lg font-bold text-gray-900">Fin de séchage</h3>
+            <p className="mt-2 text-sm text-gray-700">Ticket #{alertTicket.id.substring(0,8)} — Le séchage est terminé.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setAlertTicket(null)} className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200">Fermer</button>
+              <button onClick={() => ackDrying(alertTicket.id)} className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700">J’ai pris en compte</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (

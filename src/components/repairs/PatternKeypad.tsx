@@ -94,11 +94,14 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
     return null;
   };
 
-  const addDigitIfNew = (d: Digit) => {
+  // Autoriser les répétitions non consécutives (ex: 1-2-3-2),
+  // mais éviter d'ajouter plusieurs fois la même touche à la suite quand on reste immobile dessus
+  const addDigitIfProgress = (d: Digit) => {
     setSequence((prev) => {
-      if (prev.includes(d)) return prev; // éviter doublons
+      const last = prev[prev.length - 1];
+      if (last === d) return prev; // pas de doublon consécutif
       const next = [...prev, d];
-      if (onChange) onChange(next.join('-'));
+      onChange && onChange(next.join('-'));
       return next;
     });
   };
@@ -121,7 +124,7 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
     const p = stage.getPointerPosition();
     if (!p) return;
     const d = findHitDigit(p.x, p.y);
-    if (d) addDigitIfNew(d);
+    if (d) addDigitIfProgress(d);
   };
 
   const handleUp = () => {
@@ -175,23 +178,49 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
               const b = map.get(d);
               if (!a || !b) return null;
               return (
-                <Arrow
-                  key={`arrow-${i}`}
-                  points={[a.x, a.y, b.x, b.y]}
-                  stroke="#2563EB"
-                  fill="#2563EB"
-                  strokeWidth={3}
-                  pointerLength={10}
-                  pointerWidth={10}
-                  lineCap="round"
-                  lineJoin="round"
-                />
+                <React.Fragment key={`seg-${i}`}>
+                  <Arrow
+                    points={[a.x, a.y, b.x, b.y]}
+                    stroke="#2563EB"
+                    fill="#2563EB"
+                    strokeWidth={3}
+                    pointerLength={10}
+                    pointerWidth={10}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                  {(() => {
+                    // Deux petits chevrons au milieu du segment pour indiquer le sens
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const ux = dx / len;
+                    const uy = dy / len;
+                    const makeChevron = (t: number) => {
+                      const mx = a.x + ux * len * t;
+                      const my = a.y + uy * len * t;
+                      const half = 12; // longueur demi-segment du chevron
+                      return (
+                        <Arrow
+                          key={`seg-${i}-ch-${t}`}
+                          points={[mx - ux * half, my - uy * half, mx + ux * half, my + uy * half]}
+                          stroke="#2563EB"
+                          fill="#2563EB"
+                          strokeWidth={2}
+                          pointerLength={6}
+                          pointerWidth={6}
+                        />
+                      );
+                    };
+                    return [makeChevron(0.33), makeChevron(0.66)];
+                  })()}
+                </React.Fragment>
               );
             })}
 
             {/* Touches */}
             {keys.map((k) => {
-              const idx = sequence.indexOf(k.digit);
+              const idx = sequence.lastIndexOf(k.digit);
               const active = idx >= 0;
               return (
                 <React.Fragment key={k.digit}>

@@ -209,23 +209,52 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     setSearchResults([]);
 
     try {
-      // Charger les stocks depuis product_stocks pour être cohérent avec la RPC fn_repair_reserve_stock
-      const { data: psRows, error: psErr } = await supabase
-        .from('product_stocks')
-        .select('stock_id, quantity, stock:stocks(id, name)')
-        .eq('product_id', effectiveId);
+      // 1) Tenter product_stocks sur [product.id, product.parent_id] (agrégation par dépôt)
+      const productIds: string[] = Array.from(new Set([product.id, product.parent_id].filter(Boolean)));
+      let aggregated: Record<string, { id: string; name: string; quantity: number }> = {};
+      let usedFallback = false;
 
-      if (psErr) {
-        console.error('[PartSearchAttach] Erreur lecture product_stocks:', psErr);
+      if (productIds.length > 0) {
+        const { data: psRows, error: psErr } = await supabase
+          .from('product_stocks')
+          .select('product_id, stock_id, quantity, stock:stocks(id, name)')
+          .in('product_id', productIds);
+
+        if (psErr) {
+          console.error('[PartSearchAttach] Erreur lecture product_stocks (in):', psErr);
+        }
+
+        if (psRows && psRows.length > 0) {
+          for (const r of psRows as any[]) {
+            const key = r.stock_id;
+            if (!aggregated[key]) {
+              aggregated[key] = { id: r.stock_id, name: r.stock?.name, quantity: 0 };
+            }
+            aggregated[key].quantity += Number(r.quantity || 0);
+          }
+        } else {
+          usedFallback = true;
+        }
+      } else {
+        usedFallback = true;
       }
 
-      const rawStocks = (psRows || []).map((r: any) => ({
-        id: r.stock_id,
-        name: r.stock?.name,
-        quantity: Number(r.quantity || 0),
-      }));
+      // 2) Fallback: utiliser la liste des dépôts du produit retournée par la recherche (product.stocks)
+      if (usedFallback) {
+        const list = Array.isArray(product.stocks) ? product.stocks : [];
+        for (const ps of list) {
+          const key = ps.stock_id;
+          aggregated[key] = {
+            id: ps.stock_id,
+            name: ps.stock_name,
+            quantity: Number(ps.quantity || 0),
+          };
+        }
+        console.warn('[PartSearchAttach] Fallback sur product.stocks (aucune ligne product_stocks ou RLS).');
+      }
 
-      console.log('[PartSearchAttach] Stocks (product_stocks) pour ce produit effectif:', rawStocks);
+      const rawStocks = Object.values(aggregated);
+      console.log('[PartSearchAttach] Stocks agrégés pour ce produit:', rawStocks);
       setDisplayStocks(rawStocks);
 
       // par défaut quantité = 1
