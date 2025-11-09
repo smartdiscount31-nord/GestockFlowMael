@@ -166,8 +166,6 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
   }>>({});
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'PAU' | 'PAM'>('ALL');
   const [stockChangeTick, setStockChangeTick] = useState(0);
-  // Menu stock rapide (⋯)
-  const [quickStockMenu, setQuickStockMenu] = useState<string | null>(null);
 
   // Load user role and ID for RBAC
   useEffect(() => {
@@ -577,88 +575,6 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
             setProducts(listProducts as any);
             setStockChangeTick(t => t + 1);
           }
-  };
-
-  // Ajustement rapide du stock (+1/-1) sur le dépôt par défaut
-  const adjustStock = async (p: Product, delta: number) => {
-    try {
-      // 1) Si stock partagé (pool)
-      if ((p as any).shared_stock_id) {
-        const poolId = (p as any).shared_stock_id;
-        const { data: poolRow, error: poolErr } = await supabase
-          .from('shared_stocks')
-          .select('quantity')
-          .eq('id', poolId as any)
-          .maybeSingle();
-        if (poolErr) throw poolErr;
-        const currentQty = Number((poolRow as any)?.quantity || 0);
-        const newQty = Math.max(0, currentQty + delta);
-        const { error: upErr } = await supabase
-          .from('shared_stocks')
-          .update({ quantity: newQty })
-          .eq('id', poolId as any);
-        if (upErr) throw upErr;
-        // MAJ optimiste locale
-        setProducts(prev => prev.map(pr => {
-          if (pr.id !== p.id) return pr;
-          const next: any = { ...pr };
-          next.stock_total = newQty;
-          if (!Array.isArray(next.stocks) || next.stocks.length === 0) {
-            next.stocks = [{ stock_id: 'POOL', stock: { name: 'POOL' }, quantite: newQty }];
-          } else {
-            next.stocks = next.stocks.map((s: any, idx: number) => idx === 0 ? { ...s, quantite: newQty } : s);
-          }
-          return next;
-        }));
-        return;
-      }
-      // 2) Dépôt par défaut = premier de product.stocks
-      let stockId: any = null;
-      if (Array.isArray((p as any).stocks) && (p as any).stocks.length > 0) {
-        const s0: any = (p as any).stocks[0];
-        stockId = s0.stock?.id || s0.stock_id || s0.id || null;
-      }
-      if (!stockId) {
-        window.alert("Aucun dépôt par défaut trouvé pour ce produit");
-        return;
-      }
-      const { data: row, error: rowErr } = await supabase
-        .from('stock_produit')
-        .select('quantite')
-        .eq('produit_id', p.id as any)
-        .eq('stock_id', stockId as any)
-        .maybeSingle();
-      if (rowErr) throw rowErr;
-      const currentQty = Number((row as any)?.quantite || 0);
-      const newQty = Math.max(0, currentQty + delta);
-      if (row) {
-        const { error: upErr } = await supabase
-          .from('stock_produit')
-          .update({ quantite: newQty })
-          .eq('produit_id', p.id as any)
-          .eq('stock_id', stockId as any);
-        if (upErr) throw upErr;
-      } else {
-        const { error: insErr } = await supabase
-          .from('stock_produit')
-          .insert({ produit_id: p.id as any, stock_id: stockId as any, quantite: Math.max(0, delta) });
-        if (insErr) throw insErr;
-      }
-      // MAJ optimiste locale
-      setProducts(prev => prev.map(pr => {
-        if (pr.id !== p.id) return pr;
-        const next: any = { ...pr };
-        if (!Array.isArray(next.stocks) || next.stocks.length === 0) {
-          next.stocks = [{ stock_id: stockId, stock: { name: 'Dépôt' }, quantite: Math.max(0, delta) }];
-        } else {
-          next.stocks = next.stocks.map((s: any, idx: number) => idx === 0 ? { ...s, quantite: Math.max(0, (s.quantite || 0) + delta) } : s);
-        }
-        return next;
-      }));
-    } catch (e) {
-      console.error('[ProductList] adjustStock error:', e);
-      window.alert((e as any)?.message || 'Erreur ajustement stock');
-    }
   };
 
   const handleSelectProduct = (id: string) => {
@@ -1091,7 +1007,6 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                               </div>
                             );
                           })()}
-
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">{item.stock_alert ?? '-'}</div>
@@ -1335,11 +1250,11 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex flex-col space-y-2">
-                            <span className="text-sm font-medium text-gray-900 max-w-[14ch] truncate block">{(product.sku || '').toUpperCase()}</span>
+                            <span className="text-sm font-medium text-gray-900">{(product.sku || '').toUpperCase()}</span>
                             {(product.parent_id || (product as any).mirror_of) ? (
                               !product.serial_number ? (
                                 // ENFANT MIROIR: boutons réservés aux miroirs
-                                <div className="flex flex-wrap gap-x-1 gap-y-0.5">
+                                <div className="flex items-center gap-3">
                                 <button
                                   onClick={(e) => {
                                     e.preventDefault();
@@ -1439,12 +1354,11 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                                     }
                                   })();
                                   }}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-xs leading-tight opacity-80 hover:opacity-100"
-                                  title="Voir le parent et ses miroirs"
-                                  aria-label="Voir le parent et ses miroirs"
+                                  className="text-green-600 hover:text-green-800 text-sm flex items-center gap-1"
+                                  title="Voir le parent et autres miroirs"
                                 >
-                                  <Eye size={12} />
-                                  parent & miroirs
+                                  <ExternalLink size={12} />
+                                  Voir le parent et autres miroirs
                                 </button>
                               </div>
                             ) : null
@@ -1470,9 +1384,8 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                                     return (
                                       <button
                                         onClick={() => toggleExpandProduct(product.id)}
-                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-xs leading-tight opacity-80 hover:opacity-100"
-                                        title="Voir les miroirs"
-                                        aria-label="Voir les miroirs"
+                                        className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                                        title="Voir miroirs"
                                       >
                                         <Eye size={14} />
                                         miroirs
@@ -1485,7 +1398,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                             )}
                           </div>
                         </td>
-                        <td className="px-2 py-1.5 whitespace-normal text-sm text-gray-900 font-bold leading-tight line-clamp-2 md:max-w-[34ch] lg:max-w-[42ch]">
+                        <td className="px-2 md:px-3 py-2 md:py-2.5 whitespace-normal text-sm md:text-[13px] text-gray-900 font-bold leading-tight line-clamp-2 md:max-w-[28ch] lg:max-w-[34ch]">
                           {product.name}
                         </td>
                         {userRole === ROLES.ADMIN_FULL && (
@@ -1863,35 +1776,6 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                               </div>
                             );
                           })()}
-                          {isAdminFull && (
-                            <div className="relative mt-1">
-                              <button
-                                type="button"
-                                className="px-2 py-0.5 text-xs border rounded hover:bg-gray-50"
-                                onClick={() => setQuickStockMenu(quickStockMenu === product.id ? null : product.id)}
-                                title="Menu stock rapide"
-                                aria-label="Menu stock rapide"
-                              >
-                                ⋯
-                              </button>
-                              {quickStockMenu === product.id && (
-                                <div className="absolute z-20 right-0 mt-1 w-28 bg-white border rounded shadow">
-                                  <button
-                                    className="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100"
-                                    onClick={() => { setQuickStockMenu(null); adjustStock(product, +1); }}
-                                  >
-                                    +1
-                                  </button>
-                                  <button
-                                    className="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100"
-                                    onClick={() => { setQuickStockMenu(null); adjustStock(product, -1); }}
-                                  >
-                                    -1
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
                         </td>
                         <td className="px-2 py-2 whitespace-nowrap text-sm text-gray-900 font-bold w-[4.5rem]">
                           {(() => {
@@ -2493,7 +2377,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                                                             // Rafraîchir la liste principale (parents + miroirs, sans sérialisés)
                                                             const updatedProducts = await fetchProducts();
                                                             if (updatedProducts) {
-                                                              const listProducts = updatedProducts.filter((p: any) => !p.serial_number);
+                                                              const listProducts = updatedProducts.filter(p => !p.serial_number);
                                                               setProducts(listProducts as any);
                                                             }
                                                           }
@@ -2767,7 +2651,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                                       {userRole === ROLES.ADMIN_FULL && (
                                         <td className="px-4 py-2 text-sm">
                                           {(() => {
-                                            const canViewPrice = canSeePurchasePrice(userRole, undefined, currentUserId);
+                                            const canViewPrice = canSeePurchasePrice(userRole, child.created_by, currentUserId);
                                             if (!canViewPrice) return <span className="text-gray-400">***</span>;
                                             return child.vat_type === "margin"
                                               ? (child.purchase_price_with_fees?.toFixed(2) || '-') + " € TVM"
