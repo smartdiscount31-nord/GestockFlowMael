@@ -36,6 +36,12 @@ interface Ticket {
   has_media: boolean;
   reserved_parts_count: number;
   to_order_parts_count: number;
+  // Séchage
+  drying_start_at?: string | null;
+  drying_duration_min?: number | null;
+  drying_end_at?: string | null;
+  drying_acknowledged_at?: string | null;
+  // Helper client-side (ms epoch)
   drying_end_time?: number;
 }
 
@@ -71,6 +77,11 @@ export default function Dashboard() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const [activeStatus, setActiveStatus] = useState<string>('to_repair');
+  // Chrono séchage: état UI
+  const [nowTs, setNowTs] = useState<number>(Date.now());
+  const [alertTicket, setAlertTicket] = useState<Ticket | null>(null);
+  const [durationByTicket, setDurationByTicket] = useState<Record<string, number>>({});
+  const notifiedRef = React.useRef<Set<string>>(new Set());
 
   const displayedStatuses = showArchived
     ? ALL_STATUSES
@@ -103,6 +114,49 @@ export default function Dashboard() {
     const base = Array.isArray(fallbackFrom) ? fallbackFrom : [];
     setStatusCounts(computeCounts(base));
   }, [computeCounts]);
+
+  // Démarrer un chrono de séchage
+  const startDrying = async (repair_id: string, duration_min?: number) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Session non disponible');
+      const response = await fetch('/.netlify/functions/repairs-drying-start', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repair_id, duration_min })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err?.error?.message || 'Erreur démarrage séchage');
+      }
+      setToast({ message: 'Séchage démarré', type: 'success' });
+      await loadTickets();
+    } catch (e: any) {
+      setToast({ message: e?.message || 'Erreur inconnue', type: 'error' });
+    }
+  };
+
+  // Acquitter fin de séchage
+  const ackDrying = async (repair_id: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Session non disponible');
+      const response = await fetch('/.netlify/functions/repairs-drying-ack', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repair_id })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err?.error?.message || 'Erreur d\'acquittement');
+      }
+      setToast({ message: 'Fin de séchage prise en compte', type: 'success' });
+      setAlertTicket(null);
+      await loadTickets();
+    } catch (e: any) {
+      setToast({ message: e?.message || 'Erreur inconnue', type: 'error' });
+    }
+  };
 
   const loadTickets = useCallback(async () => {
     setIsLoading(true);
@@ -153,7 +207,12 @@ export default function Dashboard() {
         has_media: (mediaByTicket[t.id] || 0) > 0,
         reserved_parts_count: partsByTicket[t.id]?.reserved || 0,
         to_order_parts_count: partsByTicket[t.id]?.toOrder || 0,
-        drying_end_time: undefined,
+        // Séchage
+        drying_start_at: t.drying_start_at || null,
+        drying_duration_min: typeof t.drying_duration_min === 'number' ? t.drying_duration_min : null,
+        drying_end_at: t.drying_end_at || null,
+        drying_acknowledged_at: t.drying_acknowledged_at || null,
+        drying_end_time: t.drying_end_at ? new Date(t.drying_end_at).getTime() : undefined,
       }));
 
       setTickets(enriched);
@@ -217,6 +276,42 @@ export default function Dashboard() {
 
   useEffect(() => { loadTickets(); }, []);
   useEffect(() => { handleSearch(searchQuery); }, [searchQuery, tickets, handleSearch]);
+
+  // Tick chaque seconde uniquement en onglet Séchage
+  useEffect(() => {
+    if (activeStatus !== 'drying') return;
+    const id = window.setInterval(() => setNowTs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [activeStatus]);
+
+  // Alerte sonore + pop-up à la fin du séchage (une seule fois par ticket)
+  const playBeep = () => {
+    try {
+      const Ctx: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 1000;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.1, ctx.currentTime);
+      o.start();
+      o.stop(ctx.currentTime + 0.2);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (activeStatus !== 'drying') return;
+    const expired = tickets.filter(t => t.status === 'drying' && t.drying_end_time && nowTs >= t.drying_end_time && !t.drying_acknowledged_at);
+    for (const t of expired) {
+      if (!notifiedRef.current.has(t.id)) {
+        notifiedRef.current.add(t.id);
+        playBeep();
+        setAlertTicket(t);
+      }
+    }
+  }, [nowTs, tickets, activeStatus]);
 
   const tabTickets = filteredTickets.filter(t => {
     if (!showArchived && t.status === 'archived') return false;
@@ -323,7 +418,9 @@ export default function Dashboard() {
                   <th className="px-6 py-4">Appareil</th>
                   <th className="px-6 py-4">Panne constatée</th>
                   <th className="px-6 py-4">Statut</th>
-                  <th className="px-6 py-4">Chrono</th>
+                  {activeStatus === 'drying' && (
+                    <th className="px-6 py-4">Chrono</th>
+                  )}
                   <th className="px-6 py-4">Rappel client</th>
                 </tr>
               </thead>
@@ -363,7 +460,53 @@ export default function Dashboard() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-6 py-4 text-[#618986]">—</td>
+                      {activeStatus === 'drying' && (
+                        <td className="px-6 py-4">
+                          {t.status !== 'drying' ? (
+                            <span className="text-[#618986]">—</span>
+                          ) : t.drying_end_time ? (
+                            (() => {
+                              const remainingMs = (t.drying_end_time || 0) - nowTs;
+                              if (remainingMs <= 0) {
+                                return (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-red-600">Terminé</span>
+                                    <button
+                                      onClick={() => ackDrying(t.id)}
+                                      className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                    >
+                                      J’ai pris en compte
+                                    </button>
+                                  </div>
+                                );
+                              }
+                              const minutes = Math.floor(remainingMs / 60000);
+                              const seconds = Math.floor((remainingMs % 60000) / 1000);
+                              return (
+                                <span className="text-sm font-bold text-blue-600">{minutes}:{String(seconds).padStart(2,'0')}</span>
+                              );
+                            })()
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min={1}
+                                max={480}
+                                value={durationByTicket[t.id] ?? 60}
+                                onChange={(e) => setDurationByTicket(prev => ({ ...prev, [t.id]: Math.max(1, Math.min(480, Number(e.target.value) || 60)) }))}
+                                className="w-20 px-2 py-1 border border-gray-300 rounded"
+                              />
+                              <span className="text-xs text-[#618986]">min</span>
+                              <button
+                                onClick={() => startDrying(t.id, durationByTicket[t.id] ?? 60)}
+                                className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                              >
+                                Démarrer
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      )}
                       <td className="px-6 py-4 text-[#618986]">—</td>
                     </tr>
                   );
@@ -433,6 +576,20 @@ export default function Dashboard() {
           onClose={() => setSelectedTicket(null)}
           onStatusChange={() => { loadTickets(); }}
         />
+      )}
+
+      {/* Pop-up fin de séchage */}
+      {alertTicket && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5">
+            <h3 className="text-lg font-bold text-gray-900">Fin de séchage</h3>
+            <p className="mt-2 text-sm text-gray-700">Ticket #{alertTicket.id.substring(0,8)} — Le séchage est terminé.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setAlertTicket(null)} className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200">Fermer</button>
+              <button onClick={() => ackDrying(alertTicket.id)} className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700">J’ai pris en compte</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (
