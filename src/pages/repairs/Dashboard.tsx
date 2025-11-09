@@ -350,7 +350,8 @@ export default function Dashboard() {
                             <p className="font-medium">{t.device_model}</p>
                             <p className="text-xs text-[#618986]">{t.device_brand}</p>
                           </div>
-                        </td>
+                        </div>
+                      </td>
                       <td className="px-6 py-4 max-w-xs truncate" title={t.issue_description}>{t.issue_description || '—'}</td>
                       <td className="px-6 py-4">
                         <select
