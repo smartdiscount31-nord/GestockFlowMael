@@ -22,6 +22,7 @@ type Product = Database['public']['Tables']['products']['Row'] & {
   // Champs additionnels pour la gestion enfant/parent et l'affichage
   parent_id?: string | null | undefined;
   serial_number?: string | null;
+  imei?: string | null;
   purchase_price_with_fees?: number | null;
   retail_price?: number | null;
   pro_price?: number | null;
@@ -66,6 +67,63 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [userRole, setUserRole] = useState<Role>(ROLES.MAGASIN);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  // Inline edit (admin full only)
+  const isAdminFull = userRole === ROLES.ADMIN_FULL;
+  const [editing, setEditing] = useState<{ id: string; field: 'purchase_price_with_fees' | 'pro_price' | 'retail_price' | 'stock_alert' | 'location' } | null>(null);
+  const [editValue, setEditValue] = useState<string>('');
+
+  const startEdit = (id: string, field: 'purchase_price_with_fees' | 'pro_price' | 'retail_price' | 'stock_alert' | 'location', current: any) => {
+    if (!isAdminFull) return;
+    setEditing({ id, field });
+    setEditValue(current === null || current === undefined ? '' : String(current));
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setEditValue('');
+  };
+
+  const commitEdit = async () => {
+    if (!editing) return;
+    const { id, field } = editing;
+    try {
+      // Normaliser la valeur (numérique pour prix/alerte, texte pour location)
+      const numericFields = new Set(['purchase_price_with_fees', 'pro_price', 'retail_price', 'stock_alert']);
+      let value: any = editValue;
+      if (numericFields.has(field)) {
+        const n = parseFloat((editValue || '').replace(/,/g, '.'));
+        if (!isFinite(n)) throw new Error('Valeur invalide');
+        value = n;
+      } else if (field === 'location') {
+        value = (editValue || '').toString().trim();
+      }
+
+      const { error } = await supabase
+        .from('products')
+        .update({ [field]: value })
+        .eq('id', id as any);
+
+      if (error) throw error;
+
+      // Sauvegarde optimiste locale
+      setProducts(prev => prev.map(p => (p.id === id ? ({ ...p, [field]: value } as any) : p)));
+    } catch (e: any) {
+      console.error('[ProductList] Inline save error:', e);
+      window.alert(e?.message || 'Erreur lors de la sauvegarde');
+    } finally {
+      cancelEdit();
+    }
+  };
+
+  const onEditKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    }
+  };
 
   console.log('[ProductList] Current user role:', userRole, 'User ID:', currentUserId);
 
@@ -183,13 +241,13 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
           table: 'stock_produit'
         },
         async () => {
-          const updatedProducts = await fetchProducts();
-          if (updatedProducts) {
-            // Afficher parents et miroirs (exclure les sérialisés)
-            const listProducts = updatedProducts.filter(p => !p.serial_number);
-            setProducts(listProducts as any);
-            setStockChangeTick(t => t + 1);
-          }
+      const updatedProducts = await fetchProducts();
+      if (updatedProducts) {
+        // Afficher parents et miroirs (exclure les sérialisés)
+        const listProducts = updatedProducts.filter((p: any) => !p.serial_number);
+        setProducts(listProducts as any);
+        setStockChangeTick(t => t + 1);
+      }
         }
       )
       .subscribe();
@@ -510,13 +568,13 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
   };
 
   const handleStockUpdate = async () => {
-    const updatedProducts = await fetchProducts();
-    if (updatedProducts) {
-      // Afficher parents et miroirs (exclure les sérialisés)
-      const listProducts = updatedProducts.filter(p => !p.serial_number);
-      setProducts(listProducts as any);
-      setStockChangeTick(t => t + 1);
-    }
+          const updatedProducts = await fetchProducts();
+          if (updatedProducts) {
+            // Afficher parents et miroirs (exclure les sérialisés)
+            const listProducts = updatedProducts.filter((p: any) => !p.serial_number);
+            setProducts(listProducts as any);
+            setStockChangeTick(t => t + 1);
+          }
   };
 
   const handleSelectProduct = (id: string) => {
@@ -1116,9 +1174,10 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                   return (
                     <React.Fragment key={product.id}>
                       <tr className={`${isLowStock ? 'bg-red-50' : ''} ${selectedProducts.has(product.id) ? 'bg-blue-50' : ''} ${(product.parent_id || (product as any).mirror_of) && !selectedProducts.has(product.id) && !isLowStock ? 'bg-gray-50' : ''}`}>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="w-10 md:w-12 p-0.5 text-center whitespace-nowrap">
                           <input
                             type="checkbox"
+                            aria-label={`Sélectionner le produit ${product.sku || product.id}`}
                             checked={selectedProducts.has(product.id)}
                             onChange={() => handleSelectProduct(product.id)}
                             className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
@@ -1169,7 +1228,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                               <img
                                 src={product.images[0]}
                                 alt={product.name}
-                                className="w-12 h-12 object-cover rounded-lg"
+                                className="w-8 h-8 md:w-9 md:h-9 object-cover rounded-md"
                                 onError={(e) => {
                                   const target = e.target as HTMLImageElement;
                                   target.src = 'https://via.placeholder.com/48?text=No+Image';
@@ -1328,8 +1387,8 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                                         className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
                                         title="Voir miroirs"
                                       >
-                                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                        Voir miroirs
+                                        <Eye size={14} />
+                                        miroirs
                                       </button>
                                     );
                                   }
@@ -1339,14 +1398,14 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">
+                        <td className="px-2 md:px-3 py-2 md:py-2.5 whitespace-normal text-sm md:text-[13px] text-gray-900 font-bold leading-tight line-clamp-2 md:max-w-[28ch] lg:max-w-[34ch]">
                           {product.name}
                         </td>
                         {userRole === ROLES.ADMIN_FULL && (
                           <td className="px-1 py-4 whitespace-nowrap text-sm text-gray-500">
                             {(() => {
                               const children = (childProducts[product.id] || []).filter((c: any) => !!c.serial_number);
-                              const canViewPrice = canSeePurchasePrice(userRole, (product as any)['created_by'], currentUserId);
+                              const canViewPrice = canSeePurchasePrice(userRole, undefined, currentUserId);
                               if (children.length === 0) {
                                 if (!canViewPrice) {
                                   return <span className="text-gray-400">***</span>;
@@ -1718,11 +1777,66 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                             );
                           })()}
                         </td>
-                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">
-                          {(product.parent_id || (product as any).mirror_of) ? (parentForMirror[product.id]?.stock_alert ?? '-') : (product.stock_alert ?? '-')}
+                        <td className="px-2 py-2 whitespace-nowrap text-sm text-gray-900 font-bold w-[4.5rem]">
+                          {(() => {
+                            const isMirrorChild = !!((product.parent_id || (product as any).mirror_of) && !product.serial_number);
+                            const displayVal = isMirrorChild ? (parentForMirror[product.id]?.stock_alert ?? '-') : (product.stock_alert ?? '-');
+                            if (!isAdminFull || isMirrorChild) {
+                              return <span>{displayVal as any}</span>;
+                            }
+                            const isEditing = editing && editing.id === product.id && editing.field === 'stock_alert';
+                            return isEditing ? (
+                              <input
+                                aria-label="Modifier alerte stock"
+                                className="w-[4.5rem] px-2 py-1 border border-gray-300 rounded text-right"
+                                autoFocus
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onBlur={commitEdit}
+                                onKeyDown={onEditKeyDown}
+                                inputMode="decimal"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => startEdit(product.id, 'stock_alert', product.stock_alert)}
+                                className="hover:underline text-right w-full"
+                                title="Modifier alerte stock"
+                                aria-label="Modifier alerte stock"
+                              >
+                                {displayVal as any}
+                              </button>
+                            );
+                          })()}
                         </td>
-                        <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">
-                          {product.location || '-'}
+                        <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-900 font-bold uppercase tracking-wide w-[6rem]">
+                          {(() => {
+                            const isEditing = editing && editing.id === product.id && editing.field === 'location';
+                            if (!isAdminFull) {
+                              return <span>{(product.location || '-') as any}</span>;
+                            }
+                            return isEditing ? (
+                              <input
+                                aria-label="Modifier emplacement"
+                                className="w-[6rem] px-2 py-1 border border-gray-300 rounded text-left uppercase"
+                                autoFocus
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onBlur={commitEdit}
+                                onKeyDown={onEditKeyDown}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => startEdit(product.id, 'location', product.location || '')}
+                                className="hover:underline text-left w-full"
+                                title="Modifier emplacement"
+                                aria-label="Modifier emplacement"
+                              >
+                                {(product.location || '-') as any}
+                              </button>
+                            );
+                          })()}
                         </td>
                         {userRole === ROLES.ADMIN_FULL && (
                           <td className="px-2 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -1833,7 +1947,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                           {userRole === ROLES.ADMIN_FULL && (
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               {(() => {
-                                const canViewPrice = canSeePurchasePrice(userRole, (parentInline as any)?.['created_by'], currentUserId);
+                                const canViewPrice = canSeePurchasePrice(userRole, undefined, currentUserId);
                                 if (!canViewPrice) return <span className="text-gray-400">***</span>;
                                 return parentInline?.vat_type === "margin"
                                   ? ((parentInline?.purchase_price_with_fees ?? 0).toFixed(2) + " € TVM")
@@ -2098,7 +2212,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                                             {userRole === ROLES.ADMIN_FULL && (
                                               <td className="px-4 py-2 text-sm">
                                                 {(() => {
-                                                  const canViewPrice = canSeePurchasePrice(userRole, (child as any)?.['created_by'], currentUserId);
+                                                  const canViewPrice = canSeePurchasePrice(userRole, undefined, currentUserId);
                                                   if (!canViewPrice) return <span className="text-gray-400">***</span>;
                                                   return child.vat_type === "margin"
                                                     ? (child.purchase_price_with_fees?.toFixed(2) || '-') + " € TVM"
@@ -2308,7 +2422,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                                               <td className="px-4 py-2 text-sm">{product.name}</td>
                                               <td className="px-4 py-2 text-sm">
                                                 {(() => {
-                                                  const canViewPrice = canSeePurchasePrice(userRole, (product as any)['created_by'], currentUserId);
+                                                  const canViewPrice = canSeePurchasePrice(userRole, undefined, currentUserId);
                                                   if (!canViewPrice) return <span className="text-gray-400">***</span>;
                                                   return product.vat_type === "margin"
                                                     ? (product.purchase_price_with_fees?.toFixed(2) || '-') + " € TVM"
@@ -2825,7 +2939,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
                   // Rafraîchir la liste pour refléter stock_alert et autres changements
                   const updatedProducts = await fetchProducts();
                   if (updatedProducts) {
-                    const listProducts = updatedProducts.filter(p => !p.serial_number);
+                    const listProducts = updatedProducts.filter((p: any) => !p.serial_number);
                     setProducts(listProducts as any);
                   }
                   // Si c'est un parent (pas de parent_id), ouvrir le modal de répartition des stocks
@@ -2962,7 +3076,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
         onUpdated={async () => {
           const updatedProducts = await fetchProducts();
           if (updatedProducts) {
-            const listProducts = updatedProducts.filter(p => !p.serial_number);
+            const listProducts = updatedProducts.filter((p: any) => !p.serial_number);
             setProducts(listProducts as any);
           }
           if (mirrorChildToEdit?.parent_id) {
@@ -3002,7 +3116,7 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
             const updatedProducts = await fetchProducts();
             if (updatedProducts) {
               // Afficher parents et miroirs (exclure les sérialisés)
-              const listProducts = updatedProducts.filter(p => !p.serial_number);
+              const listProducts = updatedProducts.filter((p: any) => !p.serial_number);
               setProducts(listProducts as any);
             }
           }}
@@ -3013,8 +3127,8 @@ export const ProductList: React.FC<ProductListProps> = ({ products: initialProdu
       <LotModal
         isOpen={isLotModalOpen}
         onClose={handleLotModalClose}
-        parentProduct={editingLotId ? undefined : (selectedProduct || undefined)}
-        lotId={editingLotId || undefined}
+        productId={selectedProduct?.id}
+        productName={selectedProduct?.name}
       />
     </div>
   );
