@@ -2,6 +2,25 @@ import { jsPDF } from 'jspdf';
 import { supabase } from '../lib/supabase';
 import { generateCGVQRCode } from './qrCodeGenerator';
 
+async function getPublicRepairUrl(repairId: string): Promise<string | null> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch('/.netlify/functions/repairs-public-link-create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+      },
+      body: JSON.stringify({ repair_id: repairId })
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json?.data?.public_url || null;
+  } catch {
+    return null;
+  }
+}
+
 export interface RepairTicketForLabels {
   id: string;
   repair_number?: string | null;
@@ -86,7 +105,8 @@ const contentW = pageW - margin * 2;
 
   // QR en haut-gauche
   const qrSize = 11; // 10-12mm
-  const url = `${window.location.origin}/repair/status/${ticket.id}`;
+  const publicUrl = await getPublicRepairUrl(ticket.id);
+  const url = publicUrl || `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
   doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
 
@@ -134,7 +154,8 @@ let y = margin + 0.6;
 const contentW = pageW - margin * 2;
 
   const qrSize = 11;
-  const url = `${window.location.origin}/repair/status/${ticket.id}`;
+  const publicUrl2 = await getPublicRepairUrl(ticket.id);
+  const url = publicUrl2 || `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
   doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
 
@@ -167,7 +188,7 @@ y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
   const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6);
-  doc.text(locale, margin, pageH - 1.2);
+  doc.text(locale, margin, pageH - 0.9);
 
   return doc;
 }
