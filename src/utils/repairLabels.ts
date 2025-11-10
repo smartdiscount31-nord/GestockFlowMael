@@ -54,6 +54,27 @@ function fieldLine(doc: jsPDF, label: string, value: string, x: number, y: numbe
   return lastY + 3.2; // prochain y
 }
 
+function fieldLineWithTextOffset(doc: jsPDF, label: string, value: string, x: number, y: number, width: number, textDy: number, drawBottomLine: boolean = true) {
+  const labelW = 16;
+  const valueX = x + labelW;
+  // Texte décalé
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.2);
+  doc.text(label, x, y + textDy);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.2);
+  const maxValueWidth = width - labelW - 1.5;
+  const lines = doc.splitTextToSize(value || '—', maxValueWidth);
+  doc.text(lines as any, valueX, y + textDy);
+  // Ligne au niveau d'origine (sans décalage)
+  doc.setLineWidth(0.2);
+  const lastY = y + (Array.isArray(lines) ? (lines.length - 1) * 2.8 : 0);
+  if (drawBottomLine) {
+    doc.line(x, lastY + 1.6, x + width, lastY + 1.6);
+  }
+  return lastY + 3.2;
+}
+
 async function buildClientLabel(ticket: RepairTicketForLabels): Promise<jsPDF> {
   const doc = new jsPDF({ unit: 'mm', format: [32, 57], orientation: 'landscape' });
   const pageW = doc.internal.pageSize.getWidth();
@@ -71,16 +92,16 @@ const contentW = pageW - margin * 2;
 
   // Header à droite du QR
 const headX = x + qrSize + 1.0;
-headerBlock(doc, headX, margin + 0.6, contentW - (qrSize + 1.0));
+headerBlock(doc, headX, margin + 5.6, contentW - (qrSize + 1.0));
 // Nom client sous l'en-tête
 const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
 doc.setFont('helvetica', 'bold');
 doc.setFontSize(5.4);
-doc.text(nameForHeader || '—', headX, margin + 5.6);
+doc.text(nameForHeader || '—', headX, margin + 10.6);
 
 // Champs (grille)
 // Démarrage des champs remonté (max entre bas du QR et zone nom) + décalage 3mm
-y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0) + 3.0;
+y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
   
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
@@ -88,10 +109,10 @@ y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0) + 3.0;
 
   
   y = fieldLine(doc, 'TEL :', custPhone || '—', x, y, contentW);
-  y = fieldLine(doc, 'MODELE :', model || '—', x, y, contentW);
-  y = fieldLine(doc, 'PANNE :', panne || '—', x, y, contentW);
+  y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
+  y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
   
-  y = fieldLine(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW);
+  y = fieldLineWithTextOffset(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW, 0.3, true);
 
   // Date en bas
   const created = new Date(ticket.created_at);
@@ -118,14 +139,14 @@ const contentW = pageW - margin * 2;
   doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
 
 const headX = x + qrSize + 1.0;
-headerBlock(doc, headX, margin + 0.6, contentW - (qrSize + 1.0));
+headerBlock(doc, headX, margin + 5.6, contentW - (qrSize + 1.0));
 // Nom client sous l'en-tête
 const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
 doc.setFont('helvetica', 'bold');
 doc.setFontSize(5.4);
-doc.text(nameForHeader || '—', headX, margin + 5.6);
+doc.text(nameForHeader || '—', headX, margin + 10.6);
 
-y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0) + 3.0;
+y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
   
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
@@ -137,16 +158,16 @@ y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0) + 3.0;
 
   
   y = fieldLine(doc, 'TEL :', custPhone || '—', x, y, contentW);
-  y = fieldLine(doc, 'MODELE :', model || '—', x, y, contentW);
-  y = fieldLine(doc, 'PANNE :', panne || '—', x, y, contentW);
-  y = fieldLine(doc, 'V - P :', vp, x, y, contentW);
-  y = fieldLine(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW);
+  y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
+  y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
+  y = fieldLineWithTextOffset(doc, 'V - P :', vp, x, y, contentW, 0.3, true);
+  y = fieldLineWithTextOffset(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW, 0.3, false);
 
   const created = new Date(ticket.created_at);
   const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6);
-  doc.text(locale, margin, pageH - 1.5);
+  doc.text(locale, margin, pageH - 1.2);
 
   return doc;
 }
