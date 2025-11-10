@@ -27,16 +27,17 @@ function eur(amount?: number | null): string {
 }
 
 function headerBlock(doc: jsPDF, x: number, y: number, width: number) {
+  // En-tête compact sur 2 lignes max, légèrement décalé
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.2);
+  doc.setFontSize(5.8);
   doc.text('SMARTDISCOUNT31 Nord - 58 Av des Etats Unis', x, y);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6);
-  doc.text('Lun - Ven | 10H - 19H | Tel : 06 10 66 89 75', x, y + 3);
-  // ligne horizontale
+  doc.setFontSize(5.6);
+  doc.text('Lun - Ven | 10H - 19H | Tel : 06 10 66 89 75', x, y + 2.6);
+  // ligne horizontale plus proche pour gagner de la place
   doc.setDrawColor(0);
   doc.setLineWidth(0.2);
-  doc.line(x, y + 4, x + width, y + 4);
+  doc.line(x, y + 3.2, x + width, y + 3.2);
 }
 
 function fieldLine(doc: jsPDF, label: string, value: string, x: number, y: number, width: number) {
@@ -61,23 +62,23 @@ async function buildClientLabel(ticket: RepairTicketForLabels): Promise<jsPDF> {
   const doc = new jsPDF({ unit: 'mm', format: [32, 57], orientation: 'landscape' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const margin = 2;
-  const x = margin;
-  let y = margin + 1; // petit décalage top
-  const contentW = pageW - margin * 2;
+  const margin = 0.6;
+const x = margin;
+let y = margin + 0.6; // petit décalage top
+const contentW = pageW - margin * 2;
 
   // QR en haut-gauche
   const qrSize = 11; // 10-12mm
   const url = `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
-  doc.addImage(qr, 'PNG', x, margin + 0.5, qrSize, qrSize);
+  doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
 
   // Header à droite du QR
-  const headX = x + qrSize + 1.5;
-  headerBlock(doc, headX, margin + 1, contentW - (qrSize + 1.5));
+const headX = x + qrSize + 1.0;
+headerBlock(doc, headX, margin + 0.8, contentW - (qrSize + 1.0));
 
   // Champs (grille)
-  y = margin + qrSize + 3.5;
+y = margin + qrSize + 2.0;
   const custName = ticket.customer?.name ?? ticket.customer_name ?? '';
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
@@ -104,20 +105,20 @@ async function buildTechLabel(ticket: RepairTicketForLabels): Promise<jsPDF> {
   const doc = new jsPDF({ unit: 'mm', format: [32, 57], orientation: 'landscape' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const margin = 2;
-  const x = margin;
-  let y = margin + 1;
-  const contentW = pageW - margin * 2;
+  const margin = 0.6;
+const x = margin;
+let y = margin + 0.6;
+const contentW = pageW - margin * 2;
 
   const qrSize = 11;
   const url = `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
-  doc.addImage(qr, 'PNG', x, margin + 0.5, qrSize, qrSize);
+  doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
 
-  const headX = x + qrSize + 1.5;
-  headerBlock(doc, headX, margin + 1, contentW - (qrSize + 1.5));
+const headX = x + qrSize + 1.0;
+headerBlock(doc, headX, margin + 0.8, contentW - (qrSize + 1.0));
 
-  y = margin + qrSize + 3.5;
+y = margin + qrSize + 2.0;
   const custName = ticket.customer?.name ?? ticket.customer_name ?? '';
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
@@ -166,7 +167,18 @@ async function uploadWithFallback(buffer: Blob | Uint8Array, path: string): Prom
       return { url: data.publicUrl, persisted: true };
     } catch (e2) {
       // Fallback final: ne pas persister, renvoyer une URL locale blob:
-      const blob = buffer instanceof Blob ? buffer : new Blob([buffer], { type: 'application/pdf' });
+      let blob: Blob;
+      if (buffer instanceof Blob) {
+        blob = buffer;
+      } else if (buffer instanceof Uint8Array) {
+        // Convertir en ArrayBuffer "classique" en copiant les octets (évite SharedArrayBuffer)
+        const ab = new ArrayBuffer(buffer.byteLength);
+        new Uint8Array(ab).set(buffer);
+        blob = new Blob([ab], { type: 'application/pdf' });
+      } else {
+        // Dernier recours (types élargis si jamais):
+        blob = new Blob([buffer as any], { type: 'application/pdf' });
+      }
       const localUrl = URL.createObjectURL(blob);
       return { url: localUrl, persisted: false };
     }
