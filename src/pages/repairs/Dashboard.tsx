@@ -377,10 +377,12 @@ export default function Dashboard() {
 
   // Impression des étiquettes (ouvre si existantes, sinon génère et persiste)
   const handlePrint = async (t: Ticket) => {
+    let clientWin: Window | null = null;
+    let techWin: Window | null = null;
     try {
       // Ouvrir 2 onglets placeholders immédiatement (anti popup-blocker)
-      const clientWin = window.open('', '_blank');
-      const techWin = window.open('', '_blank');
+      clientWin = window.open('', '_blank');
+      techWin = window.open('', '_blank');
 
       if (t.label_client_url && t.label_tech_url) {
         if (clientWin) clientWin.location.href = t.label_client_url;
@@ -410,12 +412,16 @@ export default function Dashboard() {
         estimate_amount: row?.estimate_amount ?? null,
       };
 
-      const { clientUrl, techUrl } = await generateRepairLabels(labelTicket);
-      await supabase.from('repair_tickets').update({ label_client_url: clientUrl, label_tech_url: techUrl }).eq('id', t.id);
+      const { clientUrl, techUrl, persisted } = await generateRepairLabels(labelTicket);
+      if (persisted) {
+        await supabase.from('repair_tickets').update({ label_client_url: clientUrl, label_tech_url: techUrl }).eq('id', t.id);
+      }
 
       if (clientWin) clientWin.location.href = clientUrl;
       if (techWin) techWin.location.href = techUrl;
     } catch (e) {
+      try { if (clientWin) clientWin.close(); } catch {}
+      try { if (techWin) techWin.close(); } catch {}
       console.error('[Dashboard] Erreur impression étiquettes:', e);
       setToast({ message: 'Erreur lors de la génération des étiquettes', type: 'error' });
     }

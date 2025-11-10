@@ -42,6 +42,23 @@ function extractStoragePath(publicUrl: string, bucket: string): string | null {
   }
 }
 
+function extractBucketAndPath(publicUrl: string): { bucket: string; path: string } | null {
+  try {
+    // Expected: https://<proj>.supabase.co/storage/v1/object/public/<bucket>/<path>
+    const marker = '/storage/v1/object/public/';
+    const idx = publicUrl.indexOf(marker);
+    if (idx === -1) return null;
+    const rest = publicUrl.substring(idx + marker.length);
+    const slash = rest.indexOf('/');
+    if (slash === -1) return null;
+    const bucket = rest.substring(0, slash);
+    const path = rest.substring(slash + 1);
+    return { bucket, path };
+  } catch {
+    return null;
+  }
+}
+
 export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => {
   if (event.httpMethod !== 'POST') {
     return resp(405, { ok: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Seule la méthode POST est autorisée' } });
@@ -110,15 +127,15 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
     // Supprimer pièces attachées
     await supabase.from('repair_items').delete().eq('repair_id', repair_id);
 
-    // Supprimer étiquettes si présentes (bucket labels)
+    // Supprimer étiquettes si présentes (bucket dynamique: labels ou app-assets)
     const labelUrls: string[] = [];
     if (ticket?.label_client_url) labelUrls.push(ticket.label_client_url);
     if (ticket?.label_tech_url) labelUrls.push(ticket.label_tech_url);
 
     for (const u of labelUrls) {
-      const p = extractStoragePath(u, 'labels');
-      if (p) {
-        try { await supabase.storage.from('labels').remove([p]); } catch {}
+      const bp = extractBucketAndPath(u);
+      if (bp) {
+        try { await supabase.storage.from(bp.bucket).remove([bp.path]); } catch {}
       }
     }
 

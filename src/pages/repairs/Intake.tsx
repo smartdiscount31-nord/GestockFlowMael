@@ -363,10 +363,12 @@ export function Intake() {
         .limit(1);
       const ticketRow = Array.isArray(ticketRows) ? ticketRows[0] : null;
 
+      let clientWin: Window | null = null;
+      let techWin: Window | null = null;
       try {
         // Ouvrir 2 onglets placeholders immédiatement pour éviter le popup blocker
-        const clientWin = window.open('', '_blank');
-        const techWin = window.open('', '_blank');
+        clientWin = window.open('', '_blank');
+        techWin = window.open('', '_blank');
 
         const { generateRepairLabels } = await import('../../utils/repairLabels');
         const labelTicket = {
@@ -389,7 +391,10 @@ export function Intake() {
         if (clientWin) clientWin.location.href = clientUrl;
         if (techWin) techWin.location.href = techUrl;
       } catch (e) {
+        try { if (clientWin) clientWin.close(); } catch {}
+        try { if (techWin) techWin.close(); } catch {}
         console.error('[Intake] Erreur génération/ouverte des étiquettes:', e);
+        setError('Erreur lors de la génération des étiquettes');
       }
 
       console.log('[Intake] Prise en charge créée avec succès');
