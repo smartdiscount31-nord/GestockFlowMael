@@ -1237,15 +1237,9 @@ function App() {
                   onClick={() => setCurrentPage('atelier-dashboard')}
                   className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
                 >
-                  Tableau de bord
+                  Dashboard Réparation
                 </a>
-                <a
-                  href="#"
-                  onClick={() => setCurrentPage('atelier-prise-en-charge')}
-                  className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
-                >
-                  Prise en charge
-                </a>
+
               </div>
             )}
           </div>
