@@ -338,7 +338,8 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
         data: {
           ticket,
           signature_url: signatureUrl,
-          uploaded_photos: uploadedPhotos
+          uploaded_photos: uploadedPhotos,
+          message: `Ticket de réparation #${(ticket as any).repair_number || ticket.id.substring(0, 8)} créé avec succès`
         }
       });
     }
@@ -351,7 +352,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
         ticket: completeTicket,
         signature_url: signatureUrl,
         uploaded_photos: uploadedPhotos,
-        message: `Ticket de réparation #${ticket.id.substring(0, 8)} créé avec succès`
+        message: `Ticket de réparation #${(completeTicket as any).repair_number || (ticket as any).repair_number || ticket.id.substring(0, 8)} créé avec succès`
       }
     });
 
