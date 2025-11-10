@@ -77,6 +77,13 @@ export default function Dashboard() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const [activeStatus, setActiveStatus] = useState<string>('to_repair');
+  // Filtres avancés
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [filterMyAssigned, setFilterMyAssigned] = useState<boolean>(false);
+  const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'custom' | null>(null);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   // Chrono séchage: état UI
   const [nowTs, setNowTs] = useState<number>(Date.now());
   const [alertTicket, setAlertTicket] = useState<Ticket | null>(null);
@@ -227,16 +234,7 @@ export default function Dashboard() {
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
-    if (!query.trim()) { setFilteredTickets(tickets); return; }
-    const q = query.toLowerCase();
-    setFilteredTickets(tickets.filter(t =>
-      t.customer_name.toLowerCase().includes(q) ||
-      t.customer_phone.includes(query) ||
-      t.id.toLowerCase().includes(q) ||
-      t.device_brand.toLowerCase().includes(q) ||
-      t.device_model.toLowerCase().includes(q)
-    ));
-  }, [tickets]);
+  }, []);
 
   const handleStatusChange = async (repair_id: string, new_status: string) => {
     // Optimistic update: appliquer immédiatement côté UI
@@ -275,7 +273,65 @@ export default function Dashboard() {
   const totalCount = filteredTickets.filter(t => showArchived ? true : t.status !== 'archived').length;
 
   useEffect(() => { loadTickets(); }, []);
-  useEffect(() => { handleSearch(searchQuery); }, [searchQuery, tickets, handleSearch]);
+  // Charger l'utilisateur courant pour le filtre "Moi"
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        setCurrentUserId(user?.id || null);
+        setCurrentUserEmail(user?.email || null);
+      } catch {}
+    })();
+  }, []);
+  // Recalculer les filtres combinés
+  useEffect(() => {
+    let list = tickets;
+    // Texte
+    const q = (searchQuery || '').trim().toLowerCase();
+    if (q) {
+      list = list.filter(t =>
+        t.customer_name.toLowerCase().includes(q) ||
+        (t.customer_phone || '').includes(searchQuery) ||
+        t.id.toLowerCase().includes(q) ||
+        t.device_brand.toLowerCase().includes(q) ||
+        t.device_model.toLowerCase().includes(q)
+      );
+    }
+    // Moi (assigné)
+    if (filterMyAssigned && (currentUserId || currentUserEmail)) {
+      list = list.filter(t => {
+        const a = (t.assigned_tech || '').toLowerCase();
+        return (currentUserId && a === currentUserId.toLowerCase()) || (currentUserEmail && a === currentUserEmail.toLowerCase());
+      });
+    }
+    // Plage de dates
+    if (dateFilter === 'today' || dateFilter === 'week' || (dateFilter === 'custom' && startDate && endDate)) {
+      const now = new Date();
+      let start: Date;
+      let end: Date;
+      if (dateFilter === 'today') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0,0,0,0);
+        end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59,999);
+      } else if (dateFilter === 'week') {
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0,0,0,0);
+        const weekStart = new Date(todayStart);
+        const d = (todayStart.getDay() + 6) % 7; // lundi=0
+        weekStart.setDate(todayStart.getDate() - d);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        weekEnd.setHours(23,59,59,999);
+        start = weekStart; end = weekEnd;
+      } else {
+        start = new Date(`${startDate}T00:00:00`);
+        end = new Date(`${endDate}T23:59:59.999`);
+      }
+      list = list.filter(t => {
+        const d = new Date(t.created_at);
+        return d >= start && d <= end;
+      });
+    }
+    setFilteredTickets(list);
+  }, [tickets, searchQuery, filterMyAssigned, dateFilter, startDate, endDate, currentUserId, currentUserEmail]);
 
   // Tick chaque seconde uniquement en onglet Séchage
   useEffect(() => {
@@ -326,6 +382,21 @@ export default function Dashboard() {
   };
 
   const getStatusCount = (status: string) => (statusCounts.find(c => c.status === status)?.count || 0);
+  // Compteurs Jour / Semaine / Mois (basés sur created_at, tous statuts confondus)
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0,0,0,0);
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59,999);
+  const dayCount = tickets.filter(t => { const d = new Date(t.created_at); return d >= todayStart && d <= todayEnd; }).length;
+  const weekStart = new Date(todayStart);
+  const d0 = (todayStart.getDay() + 6) % 7; // lundi=0
+  weekStart.setDate(todayStart.getDate() - d0);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23,59,59,999);
+  const weekCount = tickets.filter(t => { const d = new Date(t.created_at); return d >= weekStart && d <= weekEnd; }).length;
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0,0,0,0);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23,59,59,999);
+  const monthCount = tickets.filter(t => { const d = new Date(t.created_at); return d >= monthStart && d <= monthEnd; }).length;
 
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark text-[#111817] dark:text-gray-200">
@@ -336,12 +407,16 @@ export default function Dashboard() {
             Tickets de Réparation
           </h1>
           <div className="flex items-center gap-4 w-full md:w-auto">
-            <p className="text-sm text-[#618986] dark:text-gray-400 font-medium hidden md:block">{totalCount} tickets</p>
+            <div className="hidden md:flex items-center gap-2">
+              <span className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">Jour {dayCount}</span>
+              <span className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">Semaine {weekCount}</span>
+              <span className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">Mois {monthCount}</span>
+            </div>
             <button
               onClick={() => navigateToProduct('atelier-prise-en-charge')}
               className="flex min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-xl h-12 px-4 bg-primary text-[#111817] text-base font-bold tracking-[0.015em] hover:opacity-90 flex-grow md:flex-grow-0"
             >
-              Ajouter un ticket
+              Ajouter une prise en charge
             </button>
           </div>
         </div>
@@ -361,15 +436,37 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="hidden sm:flex gap-3 items-center">
-              <button className="flex h-12 items-center gap-x-2 rounded-xl bg-white dark:bg-[#182c2a] px-4 hover:bg-gray-50 dark:hover:bg-gray-800 shadow-sm text-[#111817] dark:text-gray-300">
+              <button
+                onClick={() => setFilterMyAssigned(v => !v)}
+                className={`flex h-12 items-center gap-x-2 rounded-xl px-4 shadow-sm ${filterMyAssigned ? 'bg-blue-600 text-white' : 'bg-white dark:bg-[#182c2a] text-[#111817] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              >
                 <UserIcon size={16} /> Moi (assigné)
               </button>
-              <button className="flex h-12 items-center gap-x-2 rounded-xl bg-white dark:bg-[#182c2a] px-4 hover:bg-gray-50 dark:hover:bg-gray-800 shadow-sm text-[#111817] dark:text-gray-300">
+              <button
+                onClick={() => setDateFilter(dateFilter === 'today' ? null : 'today')}
+                className={`flex h-12 items-center gap-x-2 rounded-xl px-4 shadow-sm ${dateFilter === 'today' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-[#182c2a] text-[#111817] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              >
                 <CalendarDays size={16} /> Aujourd'hui
               </button>
-              <button className="flex h-12 items-center gap-x-2 rounded-xl bg-white dark:bg-[#182c2a] px-4 hover:bg-gray-50 dark:hover:bg-gray-800 shadow-sm text-[#111817] dark:text-gray-300">
+              <button
+                onClick={() => setDateFilter(dateFilter === 'week' ? null : 'week')}
+                className={`flex h-12 items-center gap-x-2 rounded-xl px-4 shadow-sm ${dateFilter === 'week' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-[#182c2a] text-[#111817] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              >
                 <CalendarRange size={16} /> Cette semaine
               </button>
+              <button
+                onClick={() => setDateFilter(dateFilter === 'custom' ? null : 'custom')}
+                className={`flex h-12 items-center gap-x-2 rounded-xl px-4 shadow-sm ${dateFilter === 'custom' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-[#182c2a] text-[#111817] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              >
+                <CalendarRange size={16} /> Période
+              </button>
+              {dateFilter === 'custom' && (
+                <div className="flex items-center gap-2">
+                  <input type="date" value={startDate} onChange={(e)=>setStartDate(e.target.value)} className="h-10 rounded-md border border-gray-300 px-2 text-sm" />
+                  <span className="text-[#618986]">–</span>
+                  <input type="date" value={endDate} onChange={(e)=>setEndDate(e.target.value)} className="h-10 rounded-md border border-gray-300 px-2 text-sm" />
+                </div>
+              )}
             </div>
           </div>
         </div>
