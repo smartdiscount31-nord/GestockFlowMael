@@ -211,7 +211,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     try {
       // 1) Tenter product_stocks sur [product.id, product.parent_id] (agrégation par dépôt)
       const productIds: string[] = Array.from(new Set([product.id, product.parent_id].filter(Boolean)));
-      let aggregated: Record<string, { id: string; name: string; quantity: number }> = {};
+      let aggregated: Record<string, { id: string; name: string; quantity: number; source_product_id?: string }> = {};
       let usedFallback = false;
 
       if (productIds.length > 0) {
@@ -228,9 +228,15 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
           for (const r of psRows as any[]) {
             const key = r.stock_id;
             if (!aggregated[key]) {
-              aggregated[key] = { id: r.stock_id, name: r.stock?.name, quantity: 0 };
+              aggregated[key] = { id: r.stock_id, name: r.stock?.name, quantity: 0, source_product_id: r.product_id as string };
+              (aggregated[key] as any)._source_qty = Number(r.quantity || 0);
             }
-            aggregated[key].quantity += Number(r.quantity || 0);
+            const _q = Number(r.quantity || 0);
+            aggregated[key].quantity += _q;
+            if (_q > Number((aggregated[key] as any)._source_qty || 0)) {
+              aggregated[key].source_product_id = r.product_id as string;
+              (aggregated[key] as any)._source_qty = _q;
+            }
           }
         } else {
           usedFallback = true;
@@ -248,6 +254,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
             id: ps.stock_id,
             name: ps.stock_name,
             quantity: Number(ps.quantity || 0),
+            source_product_id: effectiveId,
           };
         }
         console.warn('[PartSearchAttach] Fallback sur product.stocks (aucune ligne product_stocks ou RLS).');
@@ -321,7 +328,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
 
     const newPart: AttachedPart = {
       id: `${Date.now()}-${selectedProduct.id}`,
-      product_id: selectedProduct.effective_id || selectedProduct.id,
+      product_id: (action === 'reserve' ? (stockInfo?.source_product_id || selectedProduct.effective_id || selectedProduct.id) : (selectedProduct.effective_id || selectedProduct.id)),
       product_name: selectedProduct.name,
       product_sku: selectedProduct.sku,
       stock_id: action === 'reserve' ? selectedStock : null,
@@ -790,39 +797,3 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
 
           <div className="flex gap-2">
             <button
-              type="button"
-              onClick={() => handleAttachPart('reserve')}
-              disabled={eligibleStocks.length === 0}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              <Package size={18} />
-              <span>Attribuer</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleAttachPart('order')}
-              disabled={!!selectedStock}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              <ShoppingCart size={18} />
-              <span>À commander</span>
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedProduct(null);
-              setDisplayStocks([]);
-              setEligibleStocks([]);
-              setQuantity(1);
-            }}
-            className="w-full px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-          >
-            Annuler
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
