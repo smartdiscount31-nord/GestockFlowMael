@@ -153,7 +153,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
     // Vérifier que le produit existe
     const { data: product, error: productErr } = await supabase
       .from('products')
-      .select('id, name, sku')
+      .select('id, name, sku, parent_id')
       .eq('id', product_id)
       .single();
 
@@ -190,10 +190,71 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 
     console.log('[repairs-attach-part] Stock trouvé:', stock.name);
 
+    // Résoudre l'ID produit qui détient réellement le stock dans ce dépôt
+    const candidateIds = new Set<string>();
+    candidateIds.add(product.id);
+    try {
+      if (product.parent_id) {
+        candidateIds.add(product.parent_id);
+      } else {
+        const { data: children, error: childErr } = await supabase
+          .from('products')
+          .select('id')
+          .eq('parent_id', product.id);
+        if (!childErr && Array.isArray(children)) {
+          for (const c of children) {
+            if (c?.id) candidateIds.add(c.id);
+          }
+        }
+      }
+    } catch {}
+
+    const candidatesArr = Array.from(candidateIds);
+    let chosenProductId: string | null = null;
+    let stockRows: Array<{ product_id: string; quantity: number }> = [];
+    if (candidatesArr.length > 0) {
+      const { data: psRows, error: psErr } = await supabase
+        .from('product_stocks')
+        .select('product_id, stock_id, quantity')
+        .eq('stock_id', stock_id)
+        .in('product_id', candidatesArr as any);
+      if (!psErr && Array.isArray(psRows)) {
+        stockRows = (psRows as any[]).map(r => ({ product_id: r.product_id, quantity: Number(r.quantity || 0) }));
+        stockRows.sort((a, b) => (b.quantity - a.quantity));
+        const eligible = stockRows.find(r => r.quantity >= qty);
+        if (eligible) {
+          chosenProductId = eligible.product_id;
+        } else if (stockRows.length > 0) {
+          // Pas assez de quantité pour la demande
+          const maxAvail = stockRows[0].quantity;
+          return resp(422, {
+            ok: false,
+            error: {
+              code: 'INSUFFICIENT_STOCK',
+              message: `Stock insuffisant pour ce produit/dépôt. Disponible: ${maxAvail}, Requis: ${qty}`,
+              context: { candidates: stockRows }
+            }
+          });
+        }
+      }
+    }
+
+    if (!chosenProductId) {
+      // Aucun enregistrement product_stocks pour ces IDs candidats dans ce dépôt
+      return resp(422, {
+        ok: false,
+        error: {
+          code: 'INSUFFICIENT_STOCK',
+          message: `Aucun stock trouvé pour ce produit dans le dépôt sélectionné`,
+          context: { candidates: candidatesArr }
+        }
+      });
+    }
+
     // Créer ou mettre à jour repair_items
     const itemData: any = {
       repair_id,
-      product_id,
+      product_id: chosenProductId,
       stock_id,
       quantity: qty,
       reserved: false
@@ -236,7 +297,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
     console.log('[repairs-attach-part] Appel RPC fn_repair_reserve_stock');
     const { data: reservationResult, error: reserveErr } = await supabase.rpc('fn_repair_reserve_stock', {
       p_repair_id: repair_id,
-      p_product_id: product_id,
+      p_product_id: chosenProductId,
       p_stock_id: stock_id,
       p_qty: qty
     });
