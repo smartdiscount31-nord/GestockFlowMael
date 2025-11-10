@@ -1492,7 +1492,7 @@ function App() {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden">
         {/* Header */}
         <header className="bg-[#3498db] text-white shadow">
           <div className="container mx-auto px-4 py-3">
@@ -1601,7 +1601,7 @@ function App() {
           </div>
         </header>
 
-        <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {renderContent()}
         </div>
 

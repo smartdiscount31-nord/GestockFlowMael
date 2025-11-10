@@ -211,13 +211,18 @@ export function Intake() {
         }),
       });
 
+      // Parse JSON seulement si le content-type est JSON
+      const ct = createResponse.headers.get('content-type') || '';
+      const isJson = ct.includes('application/json');
+      const safeBody: any = isJson ? (await createResponse.json().catch(() => ({} as any))) : null;
+
       if (!createResponse.ok) {
-        const errorData = await createResponse.json();
-        throw new Error(errorData.error?.message || 'Erreur lors de la création du ticket');
+        const msg = (safeBody && (safeBody.error?.message || safeBody.message)) || `Erreur lors de la création du ticket (HTTP ${createResponse.status})`;
+        throw new Error(msg);
       }
 
-      const createResult = await createResponse.json();
-      const ticketId = createResult.data.ticket.id;
+      const createResult = safeBody || {};
+      const ticketId = createResult?.data?.ticket?.id;
       console.log('[Intake] Ticket créé:', ticketId);
 
       // Upload du schéma (dessin) si présent

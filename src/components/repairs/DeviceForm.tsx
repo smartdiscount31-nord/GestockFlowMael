@@ -197,11 +197,11 @@ export function DeviceForm({ onDeviceDataChange, initialData }: DeviceFormProps)
             id="issue-description"
             value={formData.issue_description}
             onChange={(e) => handleChange('issue_description', e.target.value)}
-            rows={4}
-            className={`w-full px-3 py-3 border rounded-lg text-base resize-none ${
+            rows={2}
+            className={`w-full px-3 py-3 border rounded-lg text-base resize-y overflow-auto min-h-[60px] max-h-40 md:max-h-48 ${
               errors.issue_description ? 'border-red-500' : 'border-gray-300'
             }`}
-            placeholder="Décrivez le problème constaté par le client..."
+            placeholder="Décrivez le problème constaté par le client... (zone ajustable)"
           />
           {errors.issue_description && <p className="text-red-600 text-sm mt-1">{errors.issue_description}</p>}
         </div>
