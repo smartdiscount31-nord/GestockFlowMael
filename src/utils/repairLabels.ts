@@ -27,17 +27,13 @@ function eur(amount?: number | null): string {
 }
 
 function headerBlock(doc: jsPDF, x: number, y: number, width: number) {
-  // En-tête compact sur 2 lignes max, légèrement décalé
+  // En-tête compact sur 2 lignes max, aligné au même Y que le QR
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.8);
+  doc.setFontSize(5.2);
   doc.text('SMARTDISCOUNT31 Nord - 58 Av des Etats Unis', x, y);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5.6);
-  doc.text('Lun - Ven | 10H - 19H | Tel : 06 10 66 89 75', x, y + 2.6);
-  // ligne horizontale plus proche pour gagner de la place
-  doc.setDrawColor(0);
-  doc.setLineWidth(0.2);
-  doc.line(x, y + 3.2, x + width, y + 3.2);
+  doc.setFontSize(5.0);
+  doc.text('Lun - Ven | 10H - 19H | Tel : 06 10 66 89 75', x, y + 2.4);
 }
 
 function fieldLine(doc: jsPDF, label: string, value: string, x: number, y: number, width: number) {
@@ -75,20 +71,30 @@ const contentW = pageW - margin * 2;
 
   // Header à droite du QR
 const headX = x + qrSize + 1.0;
-headerBlock(doc, headX, margin + 0.8, contentW - (qrSize + 1.0));
+headerBlock(doc, headX, margin, contentW - (qrSize + 1.0));
+// Nom client sous l'en-tête
+const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
+doc.setFont('helvetica', 'bold');
+doc.setFontSize(5.4);
+doc.text(nameForHeader || '—', headX, margin + 4.8);
+// Ligne horizontale sous l'en-tête+nom (pleine largeur)
+doc.setDrawColor(0);
+doc.setLineWidth(0.2);
+doc.line(x, margin + 5.6, x + contentW, margin + 5.6);
 
-  // Champs (grille)
-y = margin + qrSize + 2.0;
-  const custName = ticket.customer?.name ?? ticket.customer_name ?? '';
+// Champs (grille)
+// Démarrage des champs remonté (max entre bas du QR et ligne sous header)
+y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0);
+  
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
   const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
 
-  y = fieldLine(doc, 'NOM :', custName || '—', x, y, contentW);
+  
   y = fieldLine(doc, 'TEL :', custPhone || '—', x, y, contentW);
   y = fieldLine(doc, 'MODELE :', model || '—', x, y, contentW);
   y = fieldLine(doc, 'PANNE :', panne || '—', x, y, contentW);
-  y = fieldLine(doc, 'V - P :', '—', x, y, contentW);
+  
   y = fieldLine(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW);
 
   // Date en bas
@@ -116,10 +122,19 @@ const contentW = pageW - margin * 2;
   doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
 
 const headX = x + qrSize + 1.0;
-headerBlock(doc, headX, margin + 0.8, contentW - (qrSize + 1.0));
+headerBlock(doc, headX, margin, contentW - (qrSize + 1.0));
+// Nom client sous l'en-tête
+const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
+doc.setFont('helvetica', 'bold');
+doc.setFontSize(5.4);
+doc.text(nameForHeader || '—', headX, margin + 4.8);
+// Ligne horizontale sous l'en-tête+nom (pleine largeur)
+doc.setDrawColor(0);
+doc.setLineWidth(0.2);
+doc.line(x, margin + 5.6, x + contentW, margin + 5.6);
 
-y = margin + qrSize + 2.0;
-  const custName = ticket.customer?.name ?? ticket.customer_name ?? '';
+y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0);
+  
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
   const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
@@ -128,7 +143,7 @@ y = margin + qrSize + 2.0;
   const pattern = patternMatch ? patternMatch[1] : null;
   const vp = ticket.pin_code ? `PIN: ${ticket.pin_code}${pattern ? '  |  PATTERN: ' + pattern : ''}` : (pattern ? `PATTERN: ${pattern}` : '—');
 
-  y = fieldLine(doc, 'NOM :', custName || '—', x, y, contentW);
+  
   y = fieldLine(doc, 'TEL :', custPhone || '—', x, y, contentW);
   y = fieldLine(doc, 'MODELE :', model || '—', x, y, contentW);
   y = fieldLine(doc, 'PANNE :', panne || '—', x, y, contentW);
