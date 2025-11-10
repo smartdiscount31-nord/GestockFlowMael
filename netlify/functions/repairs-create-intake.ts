@@ -109,6 +109,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
       serial_number,
       pin_code,
       assigned_tech,
+      estimate_amount,
       cgv_accepted,
       signature_base64,
       photos_base64 // Array de base64 strings
@@ -196,6 +197,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
       power_state,
       status: 'quote_todo',
       assigned_tech: assigned_tech || null,
+      estimate_amount: typeof estimate_amount === 'number' ? estimate_amount : null,
       cgv_accepted_at: cgv_accepted ? new Date().toISOString() : null,
       signature_url: null
     };
