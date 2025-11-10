@@ -71,20 +71,16 @@ const contentW = pageW - margin * 2;
 
   // Header à droite du QR
 const headX = x + qrSize + 1.0;
-headerBlock(doc, headX, margin, contentW - (qrSize + 1.0));
+headerBlock(doc, headX, margin + 0.6, contentW - (qrSize + 1.0));
 // Nom client sous l'en-tête
 const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
 doc.setFont('helvetica', 'bold');
 doc.setFontSize(5.4);
-doc.text(nameForHeader || '—', headX, margin + 4.8);
-// Ligne horizontale sous l'en-tête+nom (pleine largeur)
-doc.setDrawColor(0);
-doc.setLineWidth(0.2);
-doc.line(x, margin + 5.6, x + contentW, margin + 5.6);
+doc.text(nameForHeader || '—', headX, margin + 5.6);
 
 // Champs (grille)
-// Démarrage des champs remonté (max entre bas du QR et ligne sous header)
-y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0);
+// Démarrage des champs remonté (max entre bas du QR et zone nom) + décalage 3mm
+y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0) + 3.0;
   
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
@@ -122,18 +118,14 @@ const contentW = pageW - margin * 2;
   doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
 
 const headX = x + qrSize + 1.0;
-headerBlock(doc, headX, margin, contentW - (qrSize + 1.0));
+headerBlock(doc, headX, margin + 0.6, contentW - (qrSize + 1.0));
 // Nom client sous l'en-tête
 const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
 doc.setFont('helvetica', 'bold');
 doc.setFontSize(5.4);
-doc.text(nameForHeader || '—', headX, margin + 4.8);
-// Ligne horizontale sous l'en-tête+nom (pleine largeur)
-doc.setDrawColor(0);
-doc.setLineWidth(0.2);
-doc.line(x, margin + 5.6, x + contentW, margin + 5.6);
+doc.text(nameForHeader || '—', headX, margin + 5.6);
 
-y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0);
+y = Math.max(margin + qrSize + 1.2, margin + 5.6 + 1.0) + 3.0;
   
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
