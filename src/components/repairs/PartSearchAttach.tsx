@@ -797,3 +797,39 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
 
           <div className="flex gap-2">
             <button
+              type="button"
+              onClick={() => handleAttachPart('reserve')}
+              disabled={eligibleStocks.length === 0}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              <Package size={18} />
+              <span>Attribuer</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleAttachPart('order')}
+              disabled={!!selectedStock}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              <ShoppingCart size={18} />
+              <span>À commander</span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedProduct(null);
+              setDisplayStocks([]);
+              setEligibleStocks([]);
+              setQuantity(1);
+            }}
+            className="w-full px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+          >
+            Annuler
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
