@@ -64,7 +64,6 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
   useEffect(() => {
     if (ticket) {
       loadTicketDetails();
-      setIsEditing(true);
       setEdit({
         device_brand: ticket.device_brand,
         device_model: ticket.device_model,
@@ -133,19 +132,6 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
 
       console.log('[RepairModal] Call logs loaded:', callsData?.length);
       setCallLogs(callsData || []);
-
-      // Charger le prix de la prestation (estimate_amount)
-      try {
-        const { data: ticketRow } = await supabase
-          .from('repair_tickets')
-          .select('estimate_amount')
-          .eq('id', ticket.id)
-          .single();
-        if (ticketRow) {
-          setEdit((prev: any) => ({ ...(prev || {}), estimate_amount: ticketRow.estimate_amount ?? '' }));
-        }
-      } catch {}
-
     } catch (error) {
       console.error('[RepairModal] Error loading ticket details:', error);
     }
@@ -423,11 +409,6 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
               </div>
 
               <div>
-                <h3 className="font-semibold text-gray-900 mb-2">Prix de la prestation</h3>
-                <p className="text-gray-700">{(edit && edit.estimate_amount !== undefined && edit.estimate_amount !== null && edit.estimate_amount !== '') ? `${Math.round(Number(edit.estimate_amount))} €` : '—'}</p>
-              </div>
-
-              <div>
                 <h3 className="font-semibold text-gray-900 mb-2">Actions</h3>
                 <div className="space-y-2">
                   <div className="flex gap-2">
@@ -460,14 +441,6 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
                       {isGeneratingInvoice ? 'Génération...' : 'Générer facture'}
                     </button>
                   )}
-                </div>
-                <div>
-                  <button
-                    onClick={() => setIsEditing(v => !v)}
-                    className="w-full px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200"
-                  >
-                    {isEditing ? 'Fermer l’édition' : 'Modifier la fiche'}
-                  </button>
                 </div>
               </div>
             </div>
@@ -610,7 +583,6 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
                       });
                       setNewCallNote('');
                       loadTicketDetails();
-                      onStatusChange();
                       setToast({ message: 'Appel enregistré', type: 'success' });
                     } catch (e: any) {
                       setToast({ message: e?.message || 'Erreur enregistrement appel', type: 'error' });
