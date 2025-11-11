@@ -442,11 +442,8 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
                     </button>
                   )}
                 </div>
-                </div>
               </div>
-
             </div>
-          </div>
 
           {/* Edition complète de la fiche */}
           {isEditing && edit && (
