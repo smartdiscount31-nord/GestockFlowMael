@@ -51,7 +51,7 @@ function headerBlock(doc: jsPDF, x: number, y: number, width: number) {
   doc.setFontSize(5.2);
   doc.text('SMARTDISCOUNT31 Nord - 58 Av des Etats Unis', x, y);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5.0);
+  doc.setFontSize(4.0);
   doc.text('Lun - Ven | 10H - 19H | Tel : 06 10 66 89 75', x, y + 2.4);
 }
 
@@ -255,10 +255,10 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
 
   // En-tête aligné à droite
   const rightX = pageW - (margin + 3);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.2);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.2);
   const y1 = margin + 3.8;
   doc.text('SMARTDISCOUNT31 Nord', rightX, y1, { align: 'right' } as any);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.0);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(6.0);
   const y2 = y1 + 2.0;
   doc.text('58 Av des Etats Unis', rightX, y2, { align: 'right' } as any);
   const y3 = y2 + 2.0;
@@ -312,10 +312,10 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
 
   // En-tête aligné à droite
   const rightX2 = pageW - (margin + 3);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.2);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.2);
   const y1b = margin + 3.8;
   doc.text('SMARTDISCOUNT31 Nord', rightX2, y1b, { align: 'right' } as any);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.0);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(6.0);
   const y2b = y1b + 2.0;
   doc.text('58 Av des Etats Unis', rightX2, y2b, { align: 'right' } as any);
   const y3b = y2b + 2.0;
