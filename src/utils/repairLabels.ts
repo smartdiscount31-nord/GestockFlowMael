@@ -262,6 +262,7 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   const y2 = y1 + 2.0;
   doc.text('58 Av des Etats Unis', rightX, y2, { align: 'right' } as any);
   const y3 = y2 + 2.0;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(4.0);
   doc.text('Lun - Ven | 10H - 19H | Tel : 06 10 66 89 75', rightX, y3, { align: 'right' } as any);
 
   // Nom client centré
@@ -319,6 +320,7 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   const y2b = y1b + 2.0;
   doc.text('58 Av des Etats Unis', rightX2, y2b, { align: 'right' } as any);
   const y3b = y2b + 2.0;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(4.0);
   doc.text('Lun - Ven | 10H - 19H | Tel : 06 10 66 89 75', rightX2, y3b, { align: 'right' } as any);
 
   // Nom client centré
