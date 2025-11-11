@@ -266,19 +266,15 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
 
   // Nom client centré
   const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
-  const nameY = y3 + 1.0;
+  const nameY = y3 + 6.0;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(5.4);
-  doc.text(nameForHeader || '—', pageW / 2, nameY, { align: 'center' } as any);
+  doc.text(nameForHeader || '—', (pageW / 2) - 5, nameY, { align: 'center' } as any);
 
   // Démarrer sous le QR et le nom client
   y = Math.max(qrY + qrSize + 1.0, nameY + 1.0);
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
 
-  // TEL centré
-  const telStr = `TEL : ${custPhone || '—'}`;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.0);
-  doc.text(telStr, pageW / 2, y, { align: 'center' } as any);
-  y += 1.8;
+  // TEL non affiché sur l'étiquette client
 
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
   const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
@@ -292,6 +288,8 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
   doc.text(locale, margin, pageH - 1.5);
+  const dateW = (doc as any).getTextWidth ? (doc as any).getTextWidth(locale) : (doc.getStringUnitWidth(locale) * doc.getFontSize() / (doc as any).internal.scaleFactor);
+  doc.text('Ticket client', margin + dateW + 2, pageH - 1.5);
 }
 
 async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
@@ -303,7 +301,7 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   const contentW = pageW - margin * 2;
 
   const qrSize = 15;
-  const qrY = margin + 1;
+  const qrY = 0;
   const publicUrl2 = await getPublicRepairUrl(ticket.id);
   const url = publicUrl2 || `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
@@ -322,13 +320,17 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
 
   // Nom client centré
   const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
-  const nameY2 = y3b + 1.0;
+  const nameY2 = y3b + 6.0;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(5.4);
-  doc.text(nameForHeader || '—', pageW / 2, nameY2, { align: 'center' } as any);
+  doc.text(nameForHeader || '—', (pageW / 2) - 5, nameY2, { align: 'center' } as any);
 
   // Démarrer sous le QR et le nom client
-  y = Math.max(qrY + qrSize + 1.0, nameY2 + 1.0);
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
+  // TEL centré sous le nom (étiquette technicien)
+  const telStr2 = `TEL : ${custPhone || '—'}`;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.0);
+  doc.text(telStr2, pageW / 2, nameY2 + 1.8, { align: 'center' } as any);
+  y = Math.max(qrY + qrSize + 1.0, nameY2 + 2.8);
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
   const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
 
@@ -346,6 +348,8 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
   doc.text(locale, margin, pageH - 0.9);
+  const dateW2 = (doc as any).getTextWidth ? (doc as any).getTextWidth(locale) : (doc.getStringUnitWidth(locale) * doc.getFontSize() / (doc as any).internal.scaleFactor);
+  doc.text('Ticket technicien', margin + dateW2 + 2, pageH - 0.9);
 }
 
 async function buildTwoPageLabels(ticket: RepairTicketForLabels): Promise<jsPDF> {
