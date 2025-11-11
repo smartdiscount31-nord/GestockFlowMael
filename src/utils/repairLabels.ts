@@ -255,10 +255,10 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
 
   // En-tête aligné à droite
   const rightX = pageW - (margin + 3);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(5.2);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.2);
   const y1 = margin + 3.8;
   doc.text('SMARTDISCOUNT31 Nord', rightX, y1, { align: 'right' } as any);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(5.0);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.0);
   const y2 = y1 + 2.0;
   doc.text('58 Av des Etats Unis', rightX, y2, { align: 'right' } as any);
   const y3 = y2 + 2.0;
@@ -283,7 +283,9 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   y += 1;
   y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
+  y += 0.4;
   y = fieldLineWithTextOffset(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW, 0.3, true);
+  y += 0.4;
 
   const created = new Date(ticket.created_at);
   const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
@@ -310,10 +312,10 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
 
   // En-tête aligné à droite
   const rightX2 = pageW - (margin + 3);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(5.2);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.2);
   const y1b = margin + 3.8;
   doc.text('SMARTDISCOUNT31 Nord', rightX2, y1b, { align: 'right' } as any);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(5.0);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.0);
   const y2b = y1b + 2.0;
   doc.text('58 Av des Etats Unis', rightX2, y2b, { align: 'right' } as any);
   const y3b = y2b + 2.0;
@@ -330,7 +332,7 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   // TEL centré sous le nom (étiquette technicien)
   const telStr2 = `TEL : ${custPhone || '—'}`;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(6.0);
-  doc.text(telStr2, pageW / 2, nameY2 + 1.8, { align: 'center' } as any);
+  doc.text(telStr2, pageW / 2, nameY2 + 2.0, { align: 'center' } as any);
   y = Math.max(qrY + qrSize + 1.0, nameY2 + 2.8);
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
   const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
@@ -343,8 +345,11 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   y += 1;
   y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
+  y += 0.4;
   y = fieldLineWithTextOffset(doc, 'V - P :', vp, x, y, contentW, 0.3, true);
+  y += 0.4;
   y = fieldLineWithTextOffset(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW, 0.3, false);
+  y += 0.4;
 
   const created = new Date(ticket.created_at);
   const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
