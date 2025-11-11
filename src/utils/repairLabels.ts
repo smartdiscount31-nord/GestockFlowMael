@@ -236,14 +236,15 @@ async function uploadWithFallback(buffer: Blob | Uint8Array, path: string): Prom
 
 // Construit un PDF unique avec les deux étiquettes sur la même page (paysage)
 async function buildCombinedLabels(ticket: RepairTicketForLabels): Promise<jsPDF> {
-  // Format combiné vertical: largeur 57mm, hauteur 64mm (2 x 32mm)
-  const doc = new jsPDF({ unit: 'mm', format: [64, 57], orientation: 'portrait' });
-  const margin = 0.6;
+  // Format combiné vertical: largeur 57mm, hauteur 77mm (2 x 32mm avec gap 11mm et marges 1mm)
+  const doc = new jsPDF({ unit: 'mm', format: [77, 57], orientation: 'portrait' });
+  const margin = 1.0;
+  const gap = 11.0; // espace entre les 2 étiquettes
   const blockW = 57 - margin * 2; // largeur utile d'un bloc
   const blockH = 32 - margin * 2; // hauteur utile
   const baseX = margin;
-  const topY = margin;            // 1ère étiquette en haut
-  const bottomY = 32 + margin;    // 2ème étiquette en bas
+  const topY = margin;                                // 1ère étiquette en haut
+  const bottomY = margin + 32.0 + gap;                // 2ème étiquette en bas
 
   const drawClient = async (y0: number) => {
     const x = baseX; let y = y0 + 0.6; const contentW = blockW; const qrSize = 11;
@@ -312,12 +313,17 @@ async function buildCombinedLabels(ticket: RepairTicketForLabels): Promise<jsPDF
 
   await drawClient(topY);
 
-  // Séparation visuelle entre les deux étiquettes (ligne fine)
+  // Séparation visuelle entre les deux étiquettes (trait fin au centre du gap)
   try {
+    const sepY = margin + 32.0 + (gap / 2);
     doc.setDrawColor(180);
     doc.setLineWidth(0.2);
-    // Ligne horizontale à 32 mm (bord à bord avec une petite marge)
-    doc.line(0.6, 32, 56.4, 32);
+    // pointillé si dispo, sinon le trait restera plein
+    // @ts-ignore
+    if ((doc as any).setLineDash) { (doc as any).setLineDash([1.5, 1.5], 0); }
+    doc.line(margin, sepY, 57 - margin, sepY);
+    // @ts-ignore
+    if ((doc as any).setLineDash) { (doc as any).setLineDash([] as any, 0); }
   } catch {}
 
   await drawTech(bottomY);
