@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Theme CSS variables (HSL components) */
+:root {
+  --primary: 210 90% 56%;
+  --header-bg: 208 84% 53%;
+  --sidebar-bg: 210 22% 15%;
+}
+
+.text-primary { color: hsl(var(--primary)); }
+.bg-primary { background-color: hsl(var(--primary)); }
+
+/* Force theme on main header and sidebar without refactoring JSX */
+header { background-color: hsl(var(--header-bg)) !important; }
+aside { background-color: hsl(var(--sidebar-bg)) !important; }
+
 /* Style number input spinners */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {

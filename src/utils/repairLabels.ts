@@ -194,10 +194,10 @@ y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
 }
 
 async function uploadWithFallback(buffer: Blob | Uint8Array, path: string): Promise<{ url: string; persisted: boolean }> {
-  // Tentative 1: application/pdf
+  // Tentative 1: application/octet-stream (souvent acceptée par les buckets restreints)
   try {
     const { error } = await supabase.storage.from('app-assets').upload(path, buffer, {
-      contentType: 'application/pdf',
+      contentType: 'application/octet-stream',
       upsert: true
     });
     if (error) throw error;
@@ -205,10 +205,10 @@ async function uploadWithFallback(buffer: Blob | Uint8Array, path: string): Prom
     return { url: data.publicUrl, persisted: true };
   } catch (e: any) {
     const msg = String(e?.message || e || '');
-    // Tentative 2: application/octet-stream (certains buckets restreignent les PDF)
+    // Tentative 2: application/pdf
     try {
       const { error: err2 } = await supabase.storage.from('app-assets').upload(path, buffer, {
-        contentType: 'application/octet-stream',
+        contentType: 'application/pdf',
         upsert: true
       });
       if (err2) throw err2;
