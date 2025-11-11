@@ -1,0 +1,4 @@
+name,customer_group,email,phone,zone,siren,billing_line1,billing_line2,billing_zip,billing_city,billing_country,billing_region,shipping_same_as_billing,shipping_line1,shipping_line2,shipping_zip,shipping_city,shipping_country,shipping_region
+"Martin Dupont","particulier","martin.dupont@example.com","+33611223344","IDF","","12 Rue des Fleurs","","75010","Paris","France","Île-de-France","true","","","","","",""
+"SARL TechPro","pro","contact@techpro.fr","+33144556677","PACA","123456789","25 Avenue de l'Industrie","Bât B","13014","Marseille","France","Provence-Alpes-Côte d'Azur","false","Entrepôt Zone Nord","Quai 3","13015","Marseille","France","Provence-Alpes-Côte d'Azur"
+"Julie Martin","particulier","julie.martin@example.com","+33655667788","","","4 Allée des Peupliers","","69003","Lyon","France","Auvergne-Rhône-Alpes","true","","","","","",""
