@@ -236,31 +236,30 @@ async function uploadWithFallback(buffer: Blob | Uint8Array, path: string): Prom
 
 // Construit un PDF unique avec les deux étiquettes sur la même page (paysage)
 async function buildCombinedLabels(ticket: RepairTicketForLabels): Promise<jsPDF> {
-  // Format combiné: hauteur 32mm, largeur 114mm (deux fois 57mm)
-  const doc = new jsPDF({ unit: 'mm', format: [32, 114], orientation: 'landscape' });
+  // Format combiné vertical: largeur 57mm, hauteur 64mm (2 x 32mm)
+  const doc = new jsPDF({ unit: 'mm', format: [64, 57], orientation: 'portrait' });
   const margin = 0.6;
   const blockW = 57 - margin * 2; // largeur utile d'un bloc
   const blockH = 32 - margin * 2; // hauteur utile
-  const leftX = margin;
-  const rightX = 57 + margin; // seconde étiquette démarre à 57mm
+  const baseX = margin;
+  const topY = margin;            // 1ère étiquette en haut
+  const bottomY = 32 + margin;    // 2ème étiquette en bas
 
-  // Helpers pour dessiner un bloc (copie compacte de buildClientLabel/buildTechLabel)
-  const drawClient = async (baseX: number) => {
-    const x = baseX; let y = margin + 0.6; const contentW = blockW;
-    const qrSize = 11;
+  const drawClient = async (y0: number) => {
+    const x = baseX; let y = y0 + 0.6; const contentW = blockW; const qrSize = 11;
     const publicUrl = await getPublicRepairUrl(ticket.id);
     const url = publicUrl || `${window.location.origin}/repair/status/${ticket.id}`;
     const qr = await generateCGVQRCode(url, 180);
-    doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
+    doc.addImage(qr, 'PNG', x, y0, qrSize, qrSize);
 
     const headX = x + qrSize + 1.0;
-    headerBlock(doc, headX, margin + 5.6, contentW - (qrSize + 1.0));
+    headerBlock(doc, headX, y0 + 5.6, contentW - (qrSize + 1.0));
 
     const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
     doc.setFont('helvetica', 'bold'); doc.setFontSize(5.4);
-    doc.text(nameForHeader || '—', headX, margin + 10.6);
+    doc.text(nameForHeader || '—', headX, y0 + 10.6);
 
-    y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
+    y = Math.max(y0 + qrSize + 1.2, y0 + 10.6 + 1.0) + 3.0;
     const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
     const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
     const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
@@ -273,25 +272,24 @@ async function buildCombinedLabels(ticket: RepairTicketForLabels): Promise<jsPDF
     const created = new Date(ticket.created_at);
     const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
-    doc.text(locale, x, 32 - 1.5);
+    doc.text(locale, margin, y0 + 32 - 1.5);
   };
 
-  const drawTech = async (baseX: number) => {
-    const x = baseX; let y = margin + 0.6; const contentW = blockW;
-    const qrSize = 11;
-    const publicUrl = await getPublicRepairUrl(ticket.id);
-    const url = publicUrl || `${window.location.origin}/repair/status/${ticket.id}`;
+  const drawTech = async (y0: number) => {
+    const x = baseX; let y = y0 + 0.6; const contentW = blockW; const qrSize = 11;
+    const publicUrl2 = await getPublicRepairUrl(ticket.id);
+    const url = publicUrl2 || `${window.location.origin}/repair/status/${ticket.id}`;
     const qr = await generateCGVQRCode(url, 180);
-    doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
+    doc.addImage(qr, 'PNG', x, y0, qrSize, qrSize);
 
     const headX = x + qrSize + 1.0;
-    headerBlock(doc, headX, margin + 5.6, contentW - (qrSize + 1.0));
+    headerBlock(doc, headX, y0 + 5.6, contentW - (qrSize + 1.0));
 
     const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
     doc.setFont('helvetica', 'bold'); doc.setFontSize(5.4);
-    doc.text(nameForHeader || '—', headX, margin + 10.6);
+    doc.text(nameForHeader || '—', headX, y0 + 10.6);
 
-    y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
+    y = Math.max(y0 + qrSize + 1.2, y0 + 10.6 + 1.0) + 3.0;
     const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
     const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
     const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
@@ -309,13 +307,14 @@ async function buildCombinedLabels(ticket: RepairTicketForLabels): Promise<jsPDF
     const created = new Date(ticket.created_at);
     const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
-    doc.text(locale, x, 32 - 0.9);
+    doc.text(locale, margin, y0 + 32 - 0.9);
   };
 
-  await drawClient(leftX);
-  await drawTech(rightX);
+  await drawClient(topY);
+  await drawTech(bottomY);
   return doc;
 }
+
 
 export async function generateRepairLabels(ticket: RepairTicketForLabels): Promise<{ clientUrl: string; techUrl: string; persisted: boolean; }> {
   // Nouveau: PDF unique avec deux étiquettes sur une page

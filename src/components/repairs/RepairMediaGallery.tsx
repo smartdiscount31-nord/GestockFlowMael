@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { listRepairMedia, RepairMediaItem } from '../../utils/repairMedia';
+import { supabase } from '../../lib/supabase';
 
 interface RepairMediaGalleryProps {
   ticketId: string;
@@ -20,8 +21,32 @@ export default function RepairMediaGallery({ ticketId, isOpen, onClose, useSigne
     setLoading(true);
     setError(null);
     try {
-      const list = await listRepairMedia(ticketId, bucket, useSignedUrl);
-      setItems(list);
+      // 1) Source principale: table repair_media
+      const { data, error } = await supabase
+        .from('repair_media')
+        .select('id, kind, file_url, created_at')
+        .eq('repair_id', ticketId)
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const mapped: RepairMediaItem[] = data.map((row: any) => {
+          const kind = String(row.kind || '').toLowerCase();
+          const t: 'image' | 'video' | 'other' = kind === 'photo' || kind === 'diagram' || kind === 'signature' ? 'image' : (kind === 'video' ? 'video' : 'other');
+          const url = row.file_url as string;
+          return {
+            name: row.id || url,
+            path: url,
+            url,
+            type: t,
+            created_at: row.created_at || null,
+          } as RepairMediaItem;
+        });
+        setItems(mapped);
+      } else {
+        // 2) Fallback: lister via le Storage (compat ancien)
+        const list = await listRepairMedia(ticketId, bucket, useSignedUrl);
+        setItems(list);
+      }
     } catch (e: any) {
       setError(e?.message || 'Erreur lors du chargement des médias');
     } finally {

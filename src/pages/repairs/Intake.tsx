@@ -416,14 +416,11 @@ export function Intake() {
         .limit(1);
       const ticketRow = Array.isArray(ticketRows) ? ticketRows[0] : null;
 
-      let clientWin: Window | null = null;
-      let techWin: Window | null = null;
+      let pdfWin: Window | null = null;
       try {
-        // Ouvrir 2 onglets placeholders immédiatement pour éviter le popup blocker
-        clientWin = window.open('', '_blank');
-        techWin = window.open('', '_blank');
-        try { if (clientWin?.document) { clientWin.document.write('<p style="font:14px sans-serif">Ouverture de l’étiquette client…</p>'); clientWin.document.close(); } } catch {}
-        try { if (techWin?.document) { techWin.document.write('<p style="font:14px sans-serif">Ouverture de l’étiquette technicien…</p>'); techWin.document.close(); } } catch {}
+        // Ouvrir un onglet placeholder (anti popup-blocker)
+        pdfWin = window.open('', '_blank');
+        try { if (pdfWin?.document) { pdfWin.document.write('<p style="font:14px sans-serif">Ouverture des étiquettes…</p>'); pdfWin.document.close(); } } catch {}
 
         const { generateRepairLabels } = await import('../../utils/repairLabels');
         const labelTicket = {
@@ -438,16 +435,14 @@ export function Intake() {
           pin_code: formData.device?.pin_code || ticketRow?.pin_code || null,
           estimate_amount: formData.device?.estimate_amount ?? ticketRow?.estimate_amount ?? null,
         } as any;
-        const { clientUrl, techUrl } = await generateRepairLabels(labelTicket);
-        console.log('[Intake] Étiquettes générées:', { clientUrl, techUrl });
-        // Persister les URLs pour réimpression rapide
-        await supabase.from('repair_tickets').update({ label_client_url: clientUrl, label_tech_url: techUrl }).eq('id', ticketId);
-        // Injecter les URLs dans les onglets ouverts
-        setTimeout(() => { try { if (clientWin) clientWin.location.href = clientUrl; } catch {} }, 30);
-        setTimeout(() => { try { if (techWin) techWin.location.href = techUrl; } catch {} }, 60);
+        const { clientUrl } = await generateRepairLabels(labelTicket);
+        console.log('[Intake] Étiquettes générées (PDF unique):', clientUrl);
+        // Persister l’URL pour réimpression rapide (une seule URL suffit)
+        await supabase.from('repair_tickets').update({ label_client_url: clientUrl, label_tech_url: clientUrl }).eq('id', ticketId);
+        // Naviguer l’onglet unique vers le PDF combiné
+        setTimeout(() => { try { if (pdfWin) pdfWin.location.href = clientUrl; } catch {} }, 30);
       } catch (e) {
-        try { if (clientWin) clientWin.close(); } catch {}
-        try { if (techWin) techWin.close(); } catch {}
+        try { if (pdfWin) pdfWin.close(); } catch {}
         console.error('[Intake] Erreur génération/ouverte des étiquettes:', e);
         setError('Erreur lors de la génération des étiquettes');
       }

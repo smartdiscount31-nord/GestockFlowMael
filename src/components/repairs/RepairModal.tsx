@@ -56,12 +56,26 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [callLogs, setCallLogs] = useState<any[]>([]);
   const [newCallNote, setNewCallNote] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [edit, setEdit] = useState<any>(null);
 
   console.log('[RepairModal] Opened for ticket:', ticket?.id);
 
   useEffect(() => {
     if (ticket) {
       loadTicketDetails();
+      setEdit({
+        device_brand: ticket.device_brand,
+        device_model: ticket.device_model,
+        device_color: ticket.device_color || '',
+        imei: ticket.imei || '',
+        serial_number: ticket.serial_number || '',
+        pin_code: ticket.pin_code || '',
+        issue_description: ticket.issue_description || '',
+        estimate_amount: undefined,
+        assigned_tech: ticket.assigned_tech || '',
+        power_state: ticket.power_state || ''
+      });
     }
   }, [ticket]);
 
@@ -262,6 +276,35 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
     }
   };
 
+  const handleSaveEdit = async () => {
+    if (!ticket || !edit) return;
+    try {
+      const payload: any = {
+        device_brand: edit.device_brand,
+        device_model: edit.device_model,
+        device_color: edit.device_color || null,
+        imei: edit.imei || null,
+        serial_number: edit.serial_number || null,
+        pin_code: edit.pin_code || null,
+        issue_description: edit.issue_description || '',
+        assigned_tech: edit.assigned_tech || null,
+        power_state: edit.power_state || null,
+      };
+      if (edit.estimate_amount !== undefined && edit.estimate_amount !== null && edit.estimate_amount !== '') {
+        const n = Number(edit.estimate_amount);
+        if (!Number.isNaN(n)) payload.estimate_amount = n; else payload.estimate_amount = null;
+      }
+      const { error } = await supabase.from('repair_tickets').update(payload).eq('id', ticket.id);
+      if (error) throw error;
+      setToast({ message: 'Fiche mise à jour', type: 'success' });
+      setIsEditing(false);
+      await loadTicketDetails();
+      onStatusChange();
+    } catch (e: any) {
+      setToast({ message: e?.message || 'Erreur mise à jour', type: 'error' });
+    }
+  };
+
   if (!ticket) return null;
 
   const statusOptions = [
@@ -399,11 +442,49 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
                     </button>
                   )}
                 </div>
+                </div>
               </div>
-
 
             </div>
           </div>
+
+          {/* Edition complète de la fiche */}
+          {isEditing && edit && (
+            <div className="p-4 border border-gray-200 rounded-lg bg-white">
+              <h3 className="font-semibold text-gray-900 mb-3">Édition de la fiche</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input className="px-3 py-2 border rounded" placeholder="Marque"
+                  value={edit.device_brand} onChange={(e)=>setEdit({ ...edit, device_brand: e.target.value })} />
+                <input className="px-3 py-2 border rounded" placeholder="Modèle"
+                  value={edit.device_model} onChange={(e)=>setEdit({ ...edit, device_model: e.target.value })} />
+                <input className="px-3 py-2 border rounded" placeholder="Couleur"
+                  value={edit.device_color} onChange={(e)=>setEdit({ ...edit, device_color: e.target.value })} />
+                <input className="px-3 py-2 border rounded" placeholder="IMEI"
+                  value={edit.imei} onChange={(e)=>setEdit({ ...edit, imei: e.target.value })} />
+                <input className="px-3 py-2 border rounded" placeholder="N° Série"
+                  value={edit.serial_number} onChange={(e)=>setEdit({ ...edit, serial_number: e.target.value })} />
+                <input className="px-3 py-2 border rounded" placeholder="Code PIN"
+                  value={edit.pin_code} onChange={(e)=>setEdit({ ...edit, pin_code: e.target.value })} />
+                <select className="px-3 py-2 border rounded" value={edit.power_state}
+                  onChange={(e)=>setEdit({ ...edit, power_state: e.target.value })}>
+                  <option value="">État d’alimentation…</option>
+                  <option value="on">Allumé</option>
+                  <option value="off">Éteint</option>
+                  <option value="unknown">Inconnu</option>
+                </select>
+                <input className="px-3 py-2 border rounded" placeholder="Montant devis (€)"
+                  value={edit.estimate_amount ?? ''} onChange={(e)=>setEdit({ ...edit, estimate_amount: e.target.value })} />
+                <input className="px-3 py-2 border rounded md:col-span-2" placeholder="Technicien assigné"
+                  value={edit.assigned_tech} onChange={(e)=>setEdit({ ...edit, assigned_tech: e.target.value })} />
+                <textarea className="px-3 py-2 border rounded md:col-span-2" rows={3} placeholder="Description/Panne"
+                  value={edit.issue_description} onChange={(e)=>setEdit({ ...edit, issue_description: e.target.value })} />
+              </div>
+              <div className="flex justify-end gap-2 mt-3">
+                <button className="px-4 py-2 bg-gray-100 rounded" onClick={()=>setIsEditing(false)}>Annuler</button>
+                <button className="px-4 py-2 bg-blue-600 text-white rounded" onClick={handleSaveEdit}>Enregistrer</button>
+              </div>
+            </div>
+          )}
 
           <div>
             <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -484,14 +565,6 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
               </div>
             </div>
           )}
-
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                <Bell size={18} />
-                Historique des appels ({callLogs.length})
-              </h3>
-            </div>
 
             <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
               <textarea

@@ -346,19 +346,9 @@ export default function Dashboard() {
         const hours = now.getHours();
         if (hours < 19) return; // avant 19:00 → on ne fait rien
 
-        // Vérifier clé de verrouillage (ui_preferences.auto_archive_last_run)
-        let lastRun: string | null = null;
-        try {
-          const { data } = await supabase
-            .from('ui_preferences')
-            .select('value')
-            .eq('key', 'auto_archive_last_run')
-            .maybeSingle();
-          const val: any = (data as any)?.value;
-          if (val) lastRun = JSON.parse(val);
-        } catch {}
-
+        // Vérifier clé de verrouillage (localStorage)
         const todayKey = now.toISOString().slice(0, 10);
+        const lastRun = localStorage.getItem('auto_archive_last_run');
         if (lastRun === todayKey) return; // déjà exécuté aujourd'hui
 
         // Appel unique de la Netlify Function batch (backend)
@@ -379,12 +369,8 @@ export default function Dashboard() {
           console.warn('[Auto-archive] Batch call exception:', e);
         }
 
-        // Enregistrer le verrou
-        try {
-          await supabase
-            .from('ui_preferences')
-            .upsert({ key: 'auto_archive_last_run', value: JSON.stringify(todayKey) });
-        } catch {}
+        // Enregistrer le verrou (localStorage)
+        try { localStorage.setItem('auto_archive_last_run', todayKey); } catch {}
 
         // Rafraîchir la liste après l'archivage
         await loadTickets();
@@ -501,23 +487,15 @@ export default function Dashboard() {
 
   // Impression des étiquettes (ouvre si existantes, sinon génère et persiste)
   const handlePrint = async (t: Ticket) => {
-    let clientWin: Window | null = null;
-    let techWin: Window | null = null;
+    let pdfWin: Window | null = null;
     try {
-      // Ouvrir 2 onglets placeholders immédiatement (anti popup-blocker)
-      clientWin = window.open('', '_blank');
-      techWin = window.open('', '_blank');
-      try { if (clientWin?.document) { clientWin.document.write('<p style="font:14px sans-serif">Ouverture de l’étiquette client…</p>'); clientWin.document.close(); } } catch {}
-      try { if (techWin?.document) { techWin.document.write('<p style="font:14px sans-serif">Ouverture de l’étiquette technicien…</p>'); techWin.document.close(); } } catch {}
-      if (!clientWin || !techWin) {
-        setToast({ message: 'Votre navigateur a bloqué un onglet. Si besoin, réessayez ou ouvrez manuellement la 2e étiquette.', type: 'info' });
-      }
+      // Ouvrir un seul onglet placeholder (anti popup-blocker)
+      pdfWin = window.open('', '_blank');
+      try { if (pdfWin?.document) { pdfWin.document.write('<p style="font:14px sans-serif">Ouverture des étiquettes…</p>'); pdfWin.document.close(); } } catch {}
 
-      if (t.label_client_url && t.label_tech_url) {
-        const existingClientUrl = t.label_client_url as string;
-        const existingTechUrl = t.label_tech_url as string;
-        setTimeout(() => { try { if (clientWin) clientWin.location.href = existingClientUrl; } catch {} }, 30);
-        setTimeout(() => { try { if (techWin) techWin.location.href = existingTechUrl; } catch {} }, 60);
+      if (t.label_client_url) {
+        const existingUrl = t.label_client_url as string;
+        setTimeout(() => { try { if (pdfWin) pdfWin.location.href = existingUrl; } catch {} }, 30);
         return;
       }
 
@@ -548,11 +526,9 @@ export default function Dashboard() {
         await supabase.from('repair_tickets').update({ label_client_url: clientUrl, label_tech_url: techUrl }).eq('id', t.id);
       }
 
-      setTimeout(() => { try { if (clientWin) clientWin.location.href = clientUrl; } catch {} }, 30);
-      setTimeout(() => { try { if (techWin) techWin.location.href = techUrl; } catch {} }, 60);
+      setTimeout(() => { try { if (pdfWin) pdfWin.location.href = clientUrl; } catch {} }, 30);
     } catch (e) {
-      try { if (clientWin) clientWin.close(); } catch {}
-      try { if (techWin) techWin.close(); } catch {}
+      try { if (pdfWin) pdfWin.close(); } catch {}
       console.error('[Dashboard] Erreur impression étiquettes:', e);
       setToast({ message: 'Erreur lors de la génération des étiquettes', type: 'error' });
     }
@@ -741,7 +717,7 @@ export default function Dashboard() {
                     <tr key={t.id} className={`border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#102220] ${((urgencyById[t.id]||0) >= 7) ? 'bg-red-50' : ''} ${((urgencyById[t.id]||0) >= 30) ? 'ring-2 ring-red-600' : ''}`}>
                       <td className="px-6 py-4 whitespace-nowrap">{created}</td>
                       <td className="px-6 py-4">
-                        <button className="font-medium text-primary hover:underline" onClick={() => { setGalleryTicketId(t.id); setShowGallery(true); }}>#{t.repair_number ? t.repair_number : t.id.substring(0,8)}</button>
+                        <button className="font-medium text-primary hover:underline" onClick={() => { setSelectedTicket(t); }}>#{t.repair_number ? t.repair_number : t.id.substring(0,8)}</button>
                         <div className="text-xs">
                           <button
                             className="text-blue-600 hover:underline"
