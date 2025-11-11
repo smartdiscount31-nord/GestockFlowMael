@@ -247,7 +247,7 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   const contentW = pageW - margin * 2;
 
   const qrSize = 15;
-  const qrY = margin + 1;
+  const qrY = margin;
   const publicUrl = await getPublicRepairUrl(ticket.id);
   const url = publicUrl || `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
@@ -280,6 +280,7 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
 
   // TEL centré ci-dessus
+  y += 1;
   y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW, 0.3, true);
@@ -320,7 +321,7 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
 
   // Nom client centré
   const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
-  const nameY2 = y3b + 6.0;
+  const nameY2 = y3b + 3.0;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(5.4);
   doc.text(nameForHeader || '—', (pageW / 2) - 5, nameY2, { align: 'center' } as any);
 
@@ -339,6 +340,7 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   const vp = ticket.pin_code ? `PIN: ${ticket.pin_code}${pattern ? '  |  PATTERN: ' + pattern : ''}` : (pattern ? `PATTERN: ${pattern}` : '—');
 
   // TEL centré non réimprimé ici (centrage géré au-dessus si besoin)
+  y += 1;
   y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'V - P :', vp, x, y, contentW, 0.3, true);
