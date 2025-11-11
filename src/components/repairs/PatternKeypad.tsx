@@ -94,12 +94,13 @@ export function PatternKeypad({ onChange, onExport }: PatternKeypadProps) {
     return null;
   };
 
-  // Autoriser les répétitions non consécutives (ex: 1-2-3-2),
-  // mais éviter d'ajouter plusieurs fois la même touche à la suite quand on reste immobile dessus
+  // Règle Android: ignorer toute revisite d'un point déjà traversé.
+  // Aucune duplication d'indices dans la séquence finale.
   const addDigitIfProgress = (d: Digit) => {
     setSequence((prev) => {
+      if (prev.includes(d)) return prev; // ne pas ré-ajouter un point déjà visité
       const last = prev[prev.length - 1];
-      if (last === d) return prev; // pas de doublon consécutif
+      if (last === d) return prev; // sécurité anti-doublon consécutif
       const next = [...prev, d];
       onChange && onChange(next.join('-'));
       return next;

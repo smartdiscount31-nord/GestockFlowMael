@@ -234,24 +234,96 @@ async function uploadWithFallback(buffer: Blob | Uint8Array, path: string): Prom
   }
 }
 
+// Construit un PDF unique avec les deux étiquettes sur la même page (paysage)
+async function buildCombinedLabels(ticket: RepairTicketForLabels): Promise<jsPDF> {
+  // Format combiné: hauteur 32mm, largeur 114mm (deux fois 57mm)
+  const doc = new jsPDF({ unit: 'mm', format: [32, 114], orientation: 'landscape' });
+  const margin = 0.6;
+  const blockW = 57 - margin * 2; // largeur utile d'un bloc
+  const blockH = 32 - margin * 2; // hauteur utile
+  const leftX = margin;
+  const rightX = 57 + margin; // seconde étiquette démarre à 57mm
+
+  // Helpers pour dessiner un bloc (copie compacte de buildClientLabel/buildTechLabel)
+  const drawClient = async (baseX: number) => {
+    const x = baseX; let y = margin + 0.6; const contentW = blockW;
+    const qrSize = 11;
+    const publicUrl = await getPublicRepairUrl(ticket.id);
+    const url = publicUrl || `${window.location.origin}/repair/status/${ticket.id}`;
+    const qr = await generateCGVQRCode(url, 180);
+    doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
+
+    const headX = x + qrSize + 1.0;
+    headerBlock(doc, headX, margin + 5.6, contentW - (qrSize + 1.0));
+
+    const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(5.4);
+    doc.text(nameForHeader || '—', headX, margin + 10.6);
+
+    y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
+    const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
+    const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
+    const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
+
+    y = fieldLine(doc, 'TEL :', custPhone || '—', x, y, contentW);
+    y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
+    y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
+    y = fieldLineWithTextOffset(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW, 0.3, true);
+
+    const created = new Date(ticket.created_at);
+    const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
+    doc.text(locale, x, 32 - 1.5);
+  };
+
+  const drawTech = async (baseX: number) => {
+    const x = baseX; let y = margin + 0.6; const contentW = blockW;
+    const qrSize = 11;
+    const publicUrl = await getPublicRepairUrl(ticket.id);
+    const url = publicUrl || `${window.location.origin}/repair/status/${ticket.id}`;
+    const qr = await generateCGVQRCode(url, 180);
+    doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
+
+    const headX = x + qrSize + 1.0;
+    headerBlock(doc, headX, margin + 5.6, contentW - (qrSize + 1.0));
+
+    const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(5.4);
+    doc.text(nameForHeader || '—', headX, margin + 10.6);
+
+    y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
+    const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
+    const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
+    const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
+
+    const patternMatch = (ticket.issue_description || '').match(/\[(?:pattern|Pattern)\s*:\s*([^\]]+)\]/);
+    const pattern = patternMatch ? patternMatch[1] : null;
+    const vp = ticket.pin_code ? `PIN: ${ticket.pin_code}${pattern ? '  |  PATTERN: ' + pattern : ''}` : (pattern ? `PATTERN: ${pattern}` : '—');
+
+    y = fieldLine(doc, 'TEL :', custPhone || '—', x, y, contentW);
+    y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
+    y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
+    y = fieldLineWithTextOffset(doc, 'V - P :', vp, x, y, contentW, 0.3, true);
+    y = fieldLineWithTextOffset(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW, 0.3, false);
+
+    const created = new Date(ticket.created_at);
+    const locale = created.toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
+    doc.text(locale, x, 32 - 0.9);
+  };
+
+  await drawClient(leftX);
+  await drawTech(rightX);
+  return doc;
+}
+
 export async function generateRepairLabels(ticket: RepairTicketForLabels): Promise<{ clientUrl: string; techUrl: string; persisted: boolean; }> {
-  const clientDoc = await buildClientLabel(ticket);
-  const techDoc = await buildTechLabel(ticket);
-
-  // Export en Blob
-  const clientBlob = clientDoc.output('blob');
-  const techBlob = techDoc.output('blob');
-
+  // Nouveau: PDF unique avec deux étiquettes sur une page
+  const combined = await buildCombinedLabels(ticket);
+  const blob = combined.output('blob');
   const safeNumber = ticket.repair_number || ticket.id.substring(0,8);
-  const clientPath = `labels/repairs/${ticket.id}/label-client-${safeNumber}.pdf`;
-  const techPath = `labels/repairs/${ticket.id}/label-tech-${safeNumber}.pdf`;
-
-  const [clientRes, techRes] = await Promise.all([
-    uploadWithFallback(clientBlob, clientPath),
-    uploadWithFallback(techBlob, techPath)
-  ]);
-
-  // persisted vrai seulement si les deux ont été persistés
-  const persisted = clientRes.persisted && techRes.persisted;
-  return { clientUrl: clientRes.url, techUrl: techRes.url, persisted };
+  const combinedPath = `labels/repairs/${ticket.id}/labels-${safeNumber}.pdf`;
+  const res = await uploadWithFallback(blob, combinedPath);
+  // Pour compat rétro, renvoyer la même URL pour client/tech
+  return { clientUrl: res.url, techUrl: res.url, persisted: res.persisted };
 }

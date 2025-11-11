@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, User, Package, Camera, Clock, FileText, Bell, DollarSign } from 'lucide-react';
+import PatternPreview from './PatternPreview';
 import { supabase } from '../../lib/supabase';
 import { Toast } from '../Notifications/Toast';
 
@@ -53,6 +54,8 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
   const [reminderTime, setReminderTime] = useState('');
   const [reminderMessage, setReminderMessage] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [callLogs, setCallLogs] = useState<any[]>([]);
+  const [newCallNote, setNewCallNote] = useState('');
 
   console.log('[RepairModal] Opened for ticket:', ticket?.id);
 
@@ -105,6 +108,16 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
 
       console.log('[RepairModal] Reminders loaded:', remindersData?.length);
       setReminders(remindersData || []);
+
+      // Historique des appels (nouvelle section)
+      const { data: callsData } = await supabase
+        .from('repair_call_logs')
+        .select('*')
+        .eq('repair_id', ticket.id)
+        .order('created_at', { ascending: false });
+
+      console.log('[RepairModal] Call logs loaded:', callsData?.length);
+      setCallLogs(callsData || []);
     } catch (error) {
       console.error('[RepairModal] Error loading ticket details:', error);
     }
@@ -259,12 +272,11 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
     { value: 'in_repair', label: 'En réparation' },
     { value: 'drying', label: 'Séchage' },
     { value: 'ready_to_return', label: 'Prêt à rendre' },
-    { value: 'awaiting_customer', label: 'Attente client' },
     { value: 'delivered', label: 'Livré' },
     { value: 'archived', label: 'Archivé' },
   ];
 
-  const lastReminder = reminders.find(r => !r.done);
+
 
   // Extraction du pattern depuis la description (ex: "[Pattern: 0-7-8-4-5-1]")
   const parseDescription = (desc: string) => {
@@ -336,7 +348,7 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
               {issuePattern && (
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-2">Schéma (Pattern)</h3>
-                  <p className="text-gray-700">{issuePattern}</p>
+                  <PatternPreview sequence={issuePattern} width={280} />
                 </div>
               )}
             </div>
@@ -389,14 +401,7 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
                 </div>
               </div>
 
-              {lastReminder && (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-sm font-medium text-yellow-800">
-                    Dernier rappel: {new Date(lastReminder.remind_at).toLocaleDateString('fr-FR')}
-                  </p>
-                  <p className="text-xs text-yellow-700 mt-1">{lastReminder.message}</p>
-                </div>
-              )}
+
             </div>
           </div>
 
@@ -461,7 +466,12 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
                 {parts.map((part) => (
                   <div key={part.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <div>
-                      <p className="font-medium text-gray-900">{part.product?.name}</p>
+                      <p className="font-medium text-gray-900">
+                        {part.product?.name}
+                        {!part.product || !part.product?.sku ? (
+                          <span className="ml-2 inline-block px-2 py-0.5 text-xs rounded bg-purple-100 text-purple-700 align-middle">Éphémère</span>
+                        ) : null}
+                      </p>
                       <p className="text-sm text-gray-600">
                         Quantité: {part.quantity} • {part.reserved ? '✅ Réservée' : '⚠️ À commander'}
                       </p>
@@ -479,73 +489,56 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                 <Bell size={18} />
-                Rappels ({reminders.length})
+                Historique des appels ({callLogs.length})
               </h3>
-              <button
-                onClick={() => setShowReminderForm(!showReminderForm)}
-                className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-              >
-                + Ajouter rappel
-              </button>
             </div>
 
-            {showReminderForm && (
-              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="date"
-                    value={reminderDate}
-                    onChange={(e) => setReminderDate(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg"
-                  />
-                  <input
-                    type="time"
-                    value={reminderTime}
-                    onChange={(e) => setReminderTime(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-                <textarea
-                  value={reminderMessage}
-                  onChange={(e) => setReminderMessage(e.target.value)}
-                  placeholder="Message du rappel..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg resize-none"
-                  rows={3}
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleAddReminder}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    Enregistrer
-                  </button>
-                  <button
-                    onClick={() => setShowReminderForm(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-                  >
-                    Annuler
-                  </button>
-                </div>
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+              <textarea
+                value={newCallNote}
+                onChange={(e) => setNewCallNote(e.target.value)}
+                placeholder="Note (optionnelle)"
+                className="w-full px-3 py-2 border border-blue-200 rounded-lg resize-none"
+                rows={2}
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const { data: { user } } = await supabase.auth.getUser();
+                      await supabase.from('repair_call_logs').insert({
+                        repair_id: ticket.id,
+                        created_by: user?.id || null,
+                        note: newCallNote || null,
+                      });
+                      setNewCallNote('');
+                      loadTicketDetails();
+                      setToast({ message: 'Appel enregistré', type: 'success' });
+                    } catch (e: any) {
+                      setToast({ message: e?.message || 'Erreur enregistrement appel', type: 'error' });
+                    }
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Ajouter un suivi d’appel client
+                </button>
               </div>
-            )}
+            </div>
 
             <div className="space-y-2 max-h-48 overflow-y-auto">
-              {reminders.map((reminder) => (
-                <div key={reminder.id} className={`flex items-start gap-3 p-3 rounded-lg ${reminder.done ? 'bg-gray-50 opacity-60' : 'bg-yellow-50 border border-yellow-200'}`}>
-                  <input
-                    type="checkbox"
-                    checked={reminder.done}
-                    onChange={() => handleMarkReminderDone(reminder.id)}
-                    className="mt-1"
-                  />
+              {callLogs.map((log) => (
+                <div key={log.id} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 border border-gray-200">
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-900">
-                      {new Date(reminder.remind_at).toLocaleString('fr-FR')}
+                      {new Date(log.created_at).toLocaleString('fr-FR')}
                     </p>
-                    <p className="text-sm text-gray-700">{reminder.message}</p>
+                    {log.note && <p className="text-sm text-gray-700">{log.note}</p>}
                   </div>
                 </div>
               ))}
+              {callLogs.length === 0 && (
+                <div className="text-sm text-gray-500">Aucun appel enregistré</div>
+              )}
             </div>
           </div>
         </div>

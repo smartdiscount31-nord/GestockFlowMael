@@ -10,6 +10,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Archive, Search, User as UserIcon, CalendarDays, CalendarRange, Smartphone, Laptop, Tablet, Printer, Trash2 } from 'lucide-react';
 import { RepairModal } from '../../components/repairs/RepairModal';
+import RepairMediaGallery from '../../components/repairs/RepairMediaGallery';
 import { Toast } from '../../components/Notifications/Toast';
 import { supabase } from '../../lib/supabase';
 import useNavigate from '../../hooks/useNavigate';
@@ -58,13 +59,13 @@ const STATUS_UI: Record<string, { label: string; tabColor: string; badgeBg: stri
   in_repair:        { label: 'En réparation',       tabColor: 'text-violet-600', badgeBg: 'bg-violet-100 dark:bg-violet-900/50', badgeText: 'text-violet-800 dark:text-violet-300' },
   drying:           { label: 'Séchage',             tabColor: 'text-cyan-600',   badgeBg: 'bg-cyan-100 dark:bg-cyan-900/50',     badgeText: 'text-cyan-800 dark:text-cyan-300' },
   ready_to_return:  { label: 'Prêt à rendre',       tabColor: 'text-emerald-600',badgeBg: 'bg-emerald-100 dark:bg-emerald-900/50',badgeText: 'text-emerald-800 dark:text-emerald-300' },
-  awaiting_customer:{ label: 'Attente client',      tabColor: 'text-rose-600',   badgeBg: 'bg-rose-100 dark:bg-rose-900/50',     badgeText: 'text-rose-800 dark:text-rose-300' },
+
   delivered:        { label: 'Livré',               tabColor: 'text-gray-600',   badgeBg: 'bg-gray-200 dark:bg-gray-700/50',     badgeText: 'text-gray-800 dark:text-gray-300' },
   archived:         { label: 'Archivé',             tabColor: 'text-gray-600',   badgeBg: 'bg-gray-200 dark:bg-gray-700/50',     badgeText: 'text-gray-800 dark:text-gray-300' },
 };
 
 const ALL_STATUSES = [
-  'quote_todo','parts_to_order','waiting_parts','to_repair','in_repair','drying','ready_to_return','awaiting_customer','delivered','archived'
+  'quote_todo','parts_to_order','waiting_parts','to_repair','in_repair','drying','ready_to_return','delivered','archived'
 ];
 
 export default function Dashboard() {
@@ -78,6 +79,8 @@ export default function Dashboard() {
   const [showArchived, setShowArchived] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
+  const [galleryTicketId, setGalleryTicketId] = useState<string | null>(null);
 
   const [activeStatus, setActiveStatus] = useState<string>('to_repair');
   // Filtres avancés
@@ -92,6 +95,9 @@ export default function Dashboard() {
   const [alertTicket, setAlertTicket] = useState<Ticket | null>(null);
   const [durationByTicket, setDurationByTicket] = useState<Record<string, number>>({});
   const notifiedRef = React.useRef<Set<string>>(new Set());
+  const [urgentOnly, setUrgentOnly] = useState(false);
+  const [urgencyById, setUrgencyById] = useState<Record<string, number>>({}); // 0 | 7 | 30
+  const [lastCallByTicket, setLastCallByTicket] = useState<Record<string, string>>({});
 
   const displayedStatuses = showArchived
     ? ALL_STATUSES
@@ -228,6 +234,58 @@ export default function Dashboard() {
         drying_end_time: t.drying_end_at ? new Date(t.drying_end_at).getTime() : undefined,
       }));
 
+      // Charger historique d'appels (pour dernier/premier appel)
+      let calls: any[] = [];
+      try {
+        const { data: callsData } = await supabase
+          .from('repair_call_logs')
+          .select('repair_id, created_at')
+          .order('created_at', { ascending: true });
+        calls = callsData || [];
+      } catch {}
+
+      // Charger première date de ready_to_return
+      let ready: any[] = [];
+      try {
+        const { data: readyData } = await supabase
+          .from('repair_status_history')
+          .select('repair_id, new_status, changed_at')
+          .eq('new_status', 'ready_to_return')
+          .order('changed_at', { ascending: true });
+        ready = readyData || [];
+      } catch {}
+
+      const firstCall: Record<string, number> = {};
+      const lastCall: Record<string, number> = {};
+      for (const c of calls) {
+        const ts = new Date(c.created_at).getTime();
+        const id = c.repair_id as string;
+        if (firstCall[id] == null) firstCall[id] = ts;
+        lastCall[id] = ts;
+      }
+      const firstReady: Record<string, number> = {};
+      for (const r of ready) {
+        const ts = new Date(r.changed_at).getTime();
+        const id = r.repair_id as string;
+        if (firstReady[id] == null) firstReady[id] = ts;
+      }
+
+      const nowMs = Date.now();
+      const urg: Record<string, number> = {};
+      for (const t of enriched) {
+        let level = 0;
+        if (t.status === 'ready_to_return' && !t.invoice_id) {
+          const ref = firstCall[t.id] ?? firstReady[t.id] ?? new Date(t.created_at).getTime();
+          const days = (nowMs - ref) / 86400000;
+          if (days >= 30) level = 30; else if (days >= 7) level = 7;
+        }
+        urg[t.id] = level;
+      }
+
+      // Mettre à jour états dérivés
+      setUrgencyById(urg);
+      setLastCallByTicket(Object.fromEntries(Object.entries(lastCall).map(([k,v]) => [k, new Date(v).toISOString()])));
+
       setTickets(enriched);
       setFilteredTickets(enriched);
       // Compteurs: tenter RPC sinon fallback liste locale
@@ -279,6 +337,62 @@ export default function Dashboard() {
   const totalCount = filteredTickets.filter(t => showArchived ? true : t.status !== 'archived').length;
 
   useEffect(() => { loadTickets(); }, []);
+
+  // Auto-archivage quotidien à 19:00 (heure locale)
+  useEffect(() => {
+    (async () => {
+      try {
+        const now = new Date();
+        const hours = now.getHours();
+        if (hours < 19) return; // avant 19:00 → on ne fait rien
+
+        // Vérifier clé de verrouillage (ui_preferences.auto_archive_last_run)
+        let lastRun: string | null = null;
+        try {
+          const { data } = await supabase
+            .from('ui_preferences')
+            .select('value')
+            .eq('key', 'auto_archive_last_run')
+            .maybeSingle();
+          const val: any = (data as any)?.value;
+          if (val) lastRun = JSON.parse(val);
+        } catch {}
+
+        const todayKey = now.toISOString().slice(0, 10);
+        if (lastRun === todayKey) return; // déjà exécuté aujourd'hui
+
+        // Appel unique de la Netlify Function batch (backend)
+        const { data: { session } } = await supabase.auth.getSession();
+        try {
+          const res = await fetch('/.netlify/functions/repairs-auto-archive-run', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+            },
+            body: JSON.stringify({})
+          });
+          if (!res.ok) {
+            console.warn('[Auto-archive] Batch function failed:', res.status);
+          }
+        } catch (e) {
+          console.warn('[Auto-archive] Batch call exception:', e);
+        }
+
+        // Enregistrer le verrou
+        try {
+          await supabase
+            .from('ui_preferences')
+            .upsert({ key: 'auto_archive_last_run', value: JSON.stringify(todayKey) });
+        } catch {}
+
+        // Rafraîchir la liste après l'archivage
+        await loadTickets();
+      } catch (e) {
+        console.warn('[Auto-archive] Erreur globale:', e);
+      }
+    })();
+  }, []);
   // Charger l'utilisateur courant pour le filtre "Moi"
   useEffect(() => {
     (async () => {
@@ -338,6 +452,16 @@ export default function Dashboard() {
     }
     setFilteredTickets(list);
   }, [tickets, searchQuery, filterMyAssigned, dateFilter, startDate, endDate, currentUserId, currentUserEmail]);
+
+  // Filtre urgences
+  useEffect(() => {
+    setFilteredTickets((curr) => {
+      let list = curr;
+      if (urgentOnly) list = list.filter(t => (urgencyById[t.id] || 0) >= 7);
+      else list = tickets; // réinitialiser sur tickets complets quand on sort du filtre
+      return list;
+    });
+  }, [urgentOnly, urgencyById, tickets]);
 
   // Tick chaque seconde uniquement en onglet Séchage
   useEffect(() => {
@@ -524,10 +648,10 @@ export default function Dashboard() {
             </div>
             <div className="hidden sm:flex gap-3 items-center">
               <button
-                onClick={() => setFilterMyAssigned(v => !v)}
-                className={`flex h-12 items-center gap-x-2 rounded-xl px-4 shadow-sm ${filterMyAssigned ? 'bg-blue-600 text-white' : 'bg-white dark:bg-[#182c2a] text-[#111817] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                onClick={() => setUrgentOnly(v => !v)}
+                className={`flex h-12 items-center gap-x-2 rounded-xl px-4 shadow-sm ${urgentOnly ? 'bg-red-600 text-white' : 'bg-white dark:bg-[#182c2a] text-[#111817] dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
               >
-                <UserIcon size={16} /> Moi (assigné)
+                <UserIcon size={16} /> Urgences <span className={urgentOnly ? 'ml-1 inline-block px-2 py-0.5 rounded-full text-xs font-bold bg-white/20' : 'ml-1 inline-block px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700'}>{tickets.filter(t => (urgencyById[t.id] || 0) >= 7).length}</span>
               </button>
               <button
                 onClick={() => setDateFilter(dateFilter === 'today' ? null : 'today')}
@@ -605,7 +729,7 @@ export default function Dashboard() {
                   {activeStatus === 'drying' && (
                     <th className="px-6 py-4">Chrono</th>
                   )}
-                  <th className="px-6 py-4">Rappel client</th>
+                  <th className="px-6 py-4">Historique d’appel</th>
                   <th className="px-6 py-4">Actions</th>
                 </tr>
               </thead>
@@ -614,11 +738,25 @@ export default function Dashboard() {
                   const date = new Date(t.created_at);
                   const created = `${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
                   return (
-                    <tr key={t.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#102220]">
+                    <tr key={t.id} className={`border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#102220] ${((urgencyById[t.id]||0) >= 7) ? 'bg-red-50' : ''} ${((urgencyById[t.id]||0) >= 30) ? 'ring-2 ring-red-600' : ''}`}>
                       <td className="px-6 py-4 whitespace-nowrap">{created}</td>
                       <td className="px-6 py-4">
-                        <button className="font-medium text-primary hover:underline" onClick={() => setSelectedTicket(t)}>#{t.repair_number ? t.repair_number : t.id.substring(0,8)}</button>
-                        <p className="text-xs text-[#618986]">Ouvrir la prise en charge</p>
+                        <button className="font-medium text-primary hover:underline" onClick={() => { setGalleryTicketId(t.id); setShowGallery(true); }}>#{t.repair_number ? t.repair_number : t.id.substring(0,8)}</button>
+                        <div className="text-xs">
+                          <button
+                            className="text-blue-600 hover:underline"
+                            onClick={() => { setGalleryTicketId(t.id); setShowGallery(true); }}
+                          >
+                            Ouvrir la galerie
+                          </button>
+                          <span className="text-[#618986] mx-1">•</span>
+                          <button
+                            className="text-gray-700 hover:underline"
+                            onClick={() => setSelectedTicket(t)}
+                          >
+                            Ouvrir la prise en charge
+                          </button>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <p className="font-medium">{t.customer_name}</p>
@@ -668,7 +806,16 @@ export default function Dashboard() {
                               const minutes = Math.floor(remainingMs / 60000);
                               const seconds = Math.floor((remainingMs % 60000) / 1000);
                               return (
-                                <span className="text-sm font-bold text-blue-600">{minutes}:{String(seconds).padStart(2,'0')}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-bold text-blue-600">{minutes}:{String(seconds).padStart(2,'0')}</span>
+                                  <button
+                                    onClick={() => ackDrying(t.id)}
+                                    className="px-2 py-0.5 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                    title="Arrêter le séchage"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
                               );
                             })()
                           ) : (
@@ -692,7 +839,7 @@ export default function Dashboard() {
                           )}
                         </td>
                       )}
-                      <td className="px-6 py-4 text-[#618986]">—</td>
+                      <td className="px-6 py-4 text-[#618986]">{lastCallByTicket[t.id] ? new Date(lastCallByTicket[t.id]).toLocaleString('fr-FR') : '—'}{((urgencyById[t.id]||0) >= 30) && <div className="text-red-700 text-xs font-semibold">Récupérez vos pièces</div>}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
@@ -729,7 +876,7 @@ export default function Dashboard() {
               <div key={t.id} className="bg-white dark:bg-[#182c2a] rounded-xl shadow-sm p-4 flex flex-col gap-4">
                 <div className="flex justify-between items-center text-sm">
                   <p className="text-[#618986] dark:text-gray-400">{new Date(t.created_at).toLocaleDateString('fr-FR')} {new Date(t.created_at).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'})}</p>
-                  <button className="font-bold text-primary hover:underline" onClick={() => setSelectedTicket(t)}>#{t.repair_number ? t.repair_number : t.id.substring(0,8)}</button>
+                  <button className="font-bold text-primary hover:underline" onClick={() => { setGalleryTicketId(t.id); setShowGallery(true); }}>#{t.repair_number ? t.repair_number : t.id.substring(0,8)}</button>
                 </div>
                 <div className="text-base">
                   <p className="font-medium text-[#111817] dark:text-white">{t.customer_name}</p>
@@ -792,6 +939,14 @@ export default function Dashboard() {
           ticket={selectedTicket}
           onClose={() => setSelectedTicket(null)}
           onStatusChange={() => { loadTickets(); }}
+        />
+      )}
+
+      {showGallery && galleryTicketId && (
+        <RepairMediaGallery
+          ticketId={galleryTicketId}
+          isOpen={showGallery}
+          onClose={() => { setShowGallery(false); setGalleryTicketId(null); }}
         />
       )}
 
