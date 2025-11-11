@@ -88,6 +88,24 @@ export function CGVConsent({ onConsentChange, initialData }: CGVConsentProps) {
       </div>
 
       <div className="space-y-6">
+        {/* Lien d'ouverture CGV en fenêtre séparée */}
+        <div className="mb-2">
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                const returnTo = `${location.pathname}${location.search}`;
+                const url = `/cgv?returnTo=${encodeURIComponent(returnTo)}`;
+                window.open(url, '_blank', 'noopener,noreferrer');
+              } catch {
+                window.open('/cgv', '_blank', 'noopener,noreferrer');
+              }
+            }}
+            className="text-blue-600 hover:text-blue-800 underline"
+          >
+            Conditions Générales de Vente
+          </button>
+        </div>
         {/* Acceptation CGV */}
         <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
           <div className="flex items-start gap-3 mb-3">
@@ -107,7 +125,13 @@ export function CGVConsent({ onConsentChange, initialData }: CGVConsentProps) {
                 className="text-blue-600 underline hover:text-blue-800"
                 onClick={(e) => {
                   e.preventDefault();
-                  window.open('/cgv', '_blank');
+                  try {
+                    const returnTo = `${location.pathname}${location.search}`;
+                    const url = `/cgv?returnTo=${encodeURIComponent(returnTo)}`;
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  } catch {
+                    window.open('/cgv', '_blank', 'noopener,noreferrer');
+                  }
                 }}
               >
                 Conditions Générales de Vente

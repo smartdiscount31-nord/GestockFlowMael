@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Search, Plus, Package, ShoppingCart, AlertCircle, X } from 'lucide-react';
 import { searchProductsLikeList } from '../../utils/searchProductsLikeList';
+import { ProductSearch } from '../Search/ProductSearch';
 
 // Helpers pour aligner l'ordre des résultats sur la page Produits
 const normalizeQuery = (s: string): string => {
@@ -103,6 +104,7 @@ export interface AttachedPart {
   action: 'reserve' | 'order' | 'quick_create';
   purchase_price?: number;
   vat_regime?: 'normal' | 'margin';
+  ephemeral?: boolean; // produit éphémère (pas dans le catalogue)
 }
 
 interface QuickCreateFormData {
@@ -137,6 +139,9 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     stock_id: '',
   });
   const [error, setError] = useState<string | null>(null);
+  const [showOrderPriceDialog, setShowOrderPriceDialog] = useState(false);
+  const [orderPrice, setOrderPrice] = useState<string>('');
+  const [quickMode, setQuickMode] = useState<'catalog' | 'ephemeral'>('catalog');
 
   console.log('[PartSearchAttach] Rendered, attachedParts:', attachedParts.length);
 
@@ -353,15 +358,10 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
   };
 
   const handleQuickCreate = async () => {
-    console.log('[PartSearchAttach] Création rapide article:', quickCreateData);
+    console.log('[PartSearchAttach] Création rapide article:', quickCreateData, 'mode:', quickMode);
 
-    if (!quickCreateData.sku || !quickCreateData.name || !quickCreateData.purchase_price) {
-      setError('Veuillez remplir tous les champs obligatoires');
-      return;
-    }
-
-    if (!quickCreateData.stock_id) {
-      setError('Veuillez sélectionner un stock');
+    if (!quickCreateData.name || !quickCreateData.purchase_price) {
+      setError('Veuillez remplir les champs obligatoires (Nom, Prix)');
       return;
     }
 
@@ -371,8 +371,41 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
       return;
     }
 
+    if (quickMode === 'ephemeral') {
+      // Ne pas créer dans le catalogue; ajouter directement comme pièce éphémère (à commander)
+      const newPart: AttachedPart = {
+        id: `${Date.now()}-ephemeral`,
+        product_id: `ephemeral:${Date.now()}`,
+        product_name: quickCreateData.name,
+        product_sku: quickCreateData.sku || '',
+        stock_id: null,
+        stock_name: null,
+        quantity: qty,
+        action: 'order',
+        purchase_price: parseFloat(quickCreateData.purchase_price),
+        vat_regime: quickCreateData.vat_type,
+        ephemeral: true,
+      };
+      const updatedParts = [...attachedParts, newPart];
+      setAttachedParts(updatedParts);
+      onPartsChange(updatedParts);
+      setShowQuickCreate(false);
+      setQuickCreateData({ sku: '', name: '', purchase_price: '', vat_type: 'normal', ean: '', quantity: '1', stock_id: stocks[0]?.id || '' });
+      setError(null);
+      return;
+    }
+
+    // Mode Catalogue (création produit + stock)
+    if (!quickCreateData.sku) {
+      setError('SKU requis en mode Catalogue');
+      return;
+    }
+    if (!quickCreateData.stock_id) {
+      setError('Veuillez sélectionner un stock');
+      return;
+    }
+
     try {
-      // Créer le produit
       const { data: product, error: productError } = await supabase
         .from('products')
         .insert({
@@ -392,27 +425,16 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
         return;
       }
 
-      console.log('[PartSearchAttach] Produit créé:', product.id);
-
-      // Ajouter le stock
       const { error: stockError } = await supabase
         .from('product_stocks')
-        .insert({
-          product_id: product.id,
-          stock_id: quickCreateData.stock_id,
-          quantity: qty,
-        });
+        .insert({ product_id: product.id, stock_id: quickCreateData.stock_id, quantity: qty });
 
       if (stockError) {
         console.error('[PartSearchAttach] Erreur ajout stock:', stockError);
         setError('Produit créé mais erreur lors de l\'ajout du stock');
-      } else {
-        console.log('[PartSearchAttach] Stock ajouté, quantité:', qty);
       }
 
-      // Ajouter à la liste des pièces attachées
       const stockInfo = stocks.find(s => s.id === quickCreateData.stock_id);
-
       const newPart: AttachedPart = {
         id: `${Date.now()}-${product.id}`,
         product_id: product.id,
@@ -425,24 +447,12 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
         purchase_price: parseFloat(quickCreateData.purchase_price),
         vat_regime: quickCreateData.vat_type,
       };
-
       const updatedParts = [...attachedParts, newPart];
       setAttachedParts(updatedParts);
       onPartsChange(updatedParts);
-
       setShowQuickCreate(false);
-      setQuickCreateData({
-        sku: '',
-        name: '',
-        purchase_price: '',
-        vat_type: 'normal',
-        ean: '',
-        quantity: '1',
-        stock_id: stocks[0]?.id || '',
-      });
+      setQuickCreateData({ sku: '', name: '', purchase_price: '', vat_type: 'normal', ean: '', quantity: '1', stock_id: stocks[0]?.id || '' });
       setError(null);
-
-      console.log('[PartSearchAttach] Article créé et ajouté avec succès');
     } catch (err) {
       console.error('[PartSearchAttach] Exception création article:', err);
       setError('Erreur inattendue lors de la création');
@@ -471,6 +481,18 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
           >
             <X size={20} />
           </button>
+        </div>
+
+        {/* Mode de création */}
+        <div className="mb-4 flex items-center gap-4">
+          <label className="inline-flex items-center gap-2">
+            <input type="radio" name="qm" checked={quickMode==='catalog'} onChange={() => setQuickMode('catalog')} />
+            <span>Catalogue</span>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="radio" name="qm" checked={quickMode==='ephemeral'} onChange={() => setQuickMode('ephemeral')} />
+            <span>Produit éphémère</span>
+          </label>
         </div>
 
         {error && (
@@ -624,6 +646,9 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
                      part.action === 'order' ? '🛒 À commander' :
                      '⚡ Créé'}
                   </span>
+                  {part.ephemeral && (
+                    <span className="ml-2 inline-block mt-1 px-2 py-0.5 text-xs rounded bg-purple-100 text-purple-700">Éphémère</span>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -642,14 +667,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
       {!selectedProduct && (
         <>
           <div className="relative mb-4">
-            <Search size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Rechercher un produit..."
-              className="w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg text-base"
-            />
+            <ProductSearch onSearch={(q) => setSearchTerm(q)} placeholder="Rechercher un produit..." />
           </div>
 
           {isSearching && (
@@ -709,6 +727,43 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
             <span>Créer article rapide</span>
           </button>
         </>
+      )}
+
+      {/* Dialog prix pour "À commander" */}
+      {showOrderPriceDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-5">
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Prix d'achat de la pièce</h3>
+            <input
+              type="number"
+              step="0.01"
+              value={orderPrice}
+              onChange={(e) => setOrderPrice(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3"
+              placeholder="0.00"
+            />
+            {(!orderPrice || parseFloat(orderPrice) <= 0) && (
+              <p className="text-xs text-red-600 mb-2">Prix obligatoire</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowOrderPriceDialog(false)} className="px-3 py-2 bg-gray-100 rounded">Annuler</button>
+              <button
+                onClick={() => {
+                  const p = parseFloat(orderPrice);
+                  if (isNaN(p) || p <= 0) return;
+                  // Injecter le prix puis attacher en mode order
+                  setSelectedProduct((sp: any) => (sp ? { ...sp, purchase_price: p } : sp));
+                  setShowOrderPriceDialog(false);
+                  // Utiliser handleAttachPart avec action 'order'
+                  setTimeout(() => handleAttachPart('order'), 0);
+                }}
+                className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Valider
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Actions si produit sélectionné */}
@@ -807,7 +862,11 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
             </button>
             <button
               type="button"
-              onClick={() => handleAttachPart('order')}
+              onClick={() => {
+                // Demander un prix d'achat obligatoire avant d'ajouter
+                setOrderPrice('');
+                setShowOrderPriceDialog(true);
+              }}
               disabled={!!selectedStock}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >

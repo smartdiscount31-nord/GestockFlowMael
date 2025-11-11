@@ -1,5 +1,5 @@
 /* @ts-nocheck */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Package, Bell, DollarSign, Settings, Users, ShoppingBag, Cloud, PenTool as Tool, Box, Layers, Wrench, Calculator, LogOut, User, Calendar } from 'lucide-react';
 import { useSalesStore } from './store/salesStore';
 import { Products } from './pages/Products';
@@ -54,7 +54,8 @@ import { QuoteDetail } from './components/Billing/QuoteDetail';
 import { CreditNoteDetail } from './components/Billing/CreditNoteDetail';
 import WorkshopDashboard from './pages/repairs/Dashboard';
 import AppearanceSettings from './pages/settings/AppearanceSettings';
-import { applyTheme, loadThemeFromLocalStorage, DEFAULT_THEME, saveThemeToLocalStorage, getContrastRatio, hexToHslComponents, hslComponentsToHex } from './utils/theme';
+import CGV from './pages/legal/CGV';
+import { applyTheme, loadThemeFromLocalStorage, DEFAULT_THEME, saveThemeToLocalStorage, getContrastRatio, hexToHslComponents, hslComponentsToHex, debounce } from './utils/theme';
 
 function App() {
   const { metrics, isLoading, error, fetchMetrics } = useSalesStore();
@@ -73,6 +74,29 @@ function App() {
       return hslComponentsToHex(local.primary);
     } catch { return '#3b82f6'; }
   });
+  // Theme mini-picker helpers
+  const themePopoverRef = useRef<HTMLDivElement | null>(null);
+  const saveThemeRemoteDebouncedRef = useRef<any>(null);
+  useEffect(() => {
+    // Stable debounced remote save
+    saveThemeRemoteDebouncedRef.current = debounce(async (next: any) => {
+      try { await supabase.from('ui_preferences').upsert({ key: 'theme', value: JSON.stringify(next) }); } catch {}
+    }, 500);
+  }, []);
+  useEffect(() => {
+    if (!showThemePopover) return;
+    const onDown = (e: any) => {
+      const el = themePopoverRef.current as any;
+      if (el && !el.contains(e.target)) setShowThemePopover(false);
+    };
+    const onKey = (e: any) => { if (e.key === 'Escape') setShowThemePopover(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showThemePopover]);
   const [openSections, setOpenSections] = useState<string[]>([]);
   const [showConsignments, setShowConsignments] = useState(false);
   const [period, setPeriod] = useState<'jour' | 'semaine' | 'mois' | 'personnalise'>('semaine');
@@ -128,7 +152,7 @@ function App() {
       'customers','consignments','agenda',
       // Settings / tools / marketplace
       'mail-settings','invoice-settings','credit-note-settings','settings-ebay','settings-users','appearance-settings',
-      'marketplace-pricing','repair-calculator','atelier-prise-en-charge','atelier-dashboard','mobile-actions','fiche-magasin','reports-sales','refunds'
+      'marketplace-pricing','repair-calculator','atelier-prise-en-charge','atelier-dashboard','mobile-actions','fiche-magasin','reports-sales','refunds','legal-cgv'
     ]);
 
     const mapPathToPage = (pathname: string): string | null => {
@@ -196,6 +220,9 @@ function App() {
       // Reporting / Refunds routes
       if (p === '/reports/sales') return 'reports-sales';
       if (p === '/billing/refunds') return 'refunds';
+
+      // Legal
+      if (p === '/cgv') return 'legal-cgv';
 
       return null;
     };
@@ -769,6 +796,8 @@ function App() {
           return <SalesSummary />;
         case 'refunds':
           return <RefundsPage />;
+        case 'legal-cgv':
+          return <CGV />;
         default:
           return (
             <main className="bg-gray-50">
@@ -1607,7 +1636,7 @@ function App() {
                 <div className="relative">
                   <button type="button" onClick={() => setShowThemePopover(v=>!v)} title="Apparence / Couleur principale" className="px-2 py-1 rounded-md hover:bg-white/10">🎨</button>
                   {showThemePopover && (
-                    <div className="absolute right-0 mt-2 w-64 bg-white text-[#111817] rounded-lg shadow-xl border border-gray-200 p-3 z-50">
+                    <div ref={themePopoverRef} onClick={(e)=>e.stopPropagation()} className="absolute right-0 mt-2 w-64 bg-white text-[#111817] rounded-lg shadow-xl border border-gray-200 p-3 z-50">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-medium">Couleur principale</span>
                         <input
@@ -1626,22 +1655,24 @@ function App() {
                             const local = loadThemeFromLocalStorage() || DEFAULT_THEME;
                             const next = { ...local, primary: hsl } as any;
                             saveThemeToLocalStorage(next);
-                            // Best-effort sync
-                            (async () => { try { await supabase.from('ui_preferences').upsert({ key: 'theme', value: JSON.stringify(next) }); } catch {} })();
+                            try { saveThemeRemoteDebouncedRef.current?.(next); } catch {}
                           }}
+                          onClick={(e)=>e.stopPropagation()}
                           className="h-8 w-12 cursor-pointer"
                         />
                       </div>
                       <button
                         onClick={() => {
-                          try { (window as any).__setCurrentPage?.('appearance-settings'); } catch {}
                           setShowThemePopover(false);
-                          try {
-                            const u = new URL(window.location.href);
-                            u.searchParams.set('page', 'appearance-settings');
-                            window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
-                            window.dispatchEvent(new PopStateEvent('popstate'));
-                          } catch {}
+                          setTimeout(() => {
+                            try { (window as any).__setCurrentPage?.('appearance-settings'); } catch {}
+                            try {
+                              const u = new URL(window.location.href);
+                              u.searchParams.set('page', 'appearance-settings');
+                              window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
+                              window.dispatchEvent(new PopStateEvent('popstate'));
+                            } catch {}
+                          }, 0);
                         }}
                         className="mt-3 text-sm text-blue-600 hover:underline"
                       >

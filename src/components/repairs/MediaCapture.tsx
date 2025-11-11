@@ -159,6 +159,7 @@ export function MediaCapture({ onMediaChange, initialMedia }: MediaCaptureProps)
         type="file"
         accept="video/*"
         capture="environment"
+        multiple
         onChange={(e) => handleFileSelect(e.target.files, 'video')}
         className="hidden"
       />

@@ -72,6 +72,54 @@ export function Intake() {
     }
   }, [formData]);
 
+  // Écoute acceptation CGV (postMessage) + check au retour d'onglet (localStorage)
+  useEffect(() => {
+    const onMessage = (ev: any) => {
+      try {
+        if (ev?.origin === window.location.origin && ev?.data?.type === 'CGV_ACCEPTED') {
+          console.log('[Intake] Message CGV_ACCEPTED reçu');
+          setFormData(prev => ({
+            ...prev,
+            consent: {
+              ...(prev.consent || { signature_base64: null, cgv_accepted_at: null, cgv_accepted: false }),
+              cgv_accepted: true,
+              cgv_accepted_at: new Date().toISOString(),
+            }
+          }));
+          setError(null);
+        }
+      } catch {}
+    };
+    const checkLocal = () => {
+      try {
+        const raw = localStorage.getItem('cgvAccepted');
+        const ts = raw ? Number(raw) : 0;
+        if (ts && Date.now() - ts < 24 * 60 * 60 * 1000) {
+          console.log('[Intake] Auto-cochage CGV depuis localStorage');
+          setFormData(prev => ({
+            ...prev,
+            consent: {
+              ...(prev.consent || { signature_base64: null, cgv_accepted_at: null, cgv_accepted: false }),
+              cgv_accepted: true,
+              cgv_accepted_at: new Date(ts).toISOString(),
+            }
+          }));
+          setError(null);
+        }
+      } catch {}
+    };
+    window.addEventListener('message', onMessage);
+    document.addEventListener('visibilitychange', checkLocal);
+    window.addEventListener('focus', checkLocal);
+    // Check immédiat si l'utilisateur revient d'une page déjà ouverte
+    checkLocal();
+    return () => {
+      window.removeEventListener('message', onMessage);
+      document.removeEventListener('visibilitychange', checkLocal);
+      window.removeEventListener('focus', checkLocal);
+    };
+  }, []);
+
   const clearDraft = () => {
     console.log('[Intake] Suppression du brouillon');
     try {
@@ -547,7 +595,7 @@ export function Intake() {
               <button
                 type="button"
                 onClick={() => handleSubmit('to_repair')}
-                disabled={isSubmitting || formData.parts.filter(p => p.action === 'reserve').length === 0}
+                disabled={isSubmitting}
                 className="w-full px-4 py-4 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? 'Création en cours...' : 'Valider en "À réparer"'}

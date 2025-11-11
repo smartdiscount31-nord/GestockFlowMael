@@ -15,6 +15,17 @@
 /* Force theme on main header and sidebar without refactoring JSX */
 header { background-color: hsl(var(--header-bg)) !important; }
 aside { background-color: hsl(var(--sidebar-bg)) !important; }
+/* Override hardcoded Tailwind shades inside the sidebar to ensure full recolor */
+aside [class*="bg-[#2d3741]"],
+aside [class*="bg-[#24303a]"],
+aside [class*="bg-[#1a242d]"] {
+  background-color: hsl(var(--sidebar-bg)) !important;
+}
+/* Optional: keep hover consistent (can be the same color to avoid flash) */
+aside a:hover,
+aside button:hover {
+  background-color: hsl(var(--sidebar-bg)) !important;
+}
 
 /* Style number input spinners */
 input[type="number"]::-webkit-inner-spin-button,
