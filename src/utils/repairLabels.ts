@@ -246,24 +246,44 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   let y = margin + 0.6;
   const contentW = pageW - margin * 2;
 
-  const qrSize = 11;
+  const qrSize = 19;
+  const qrY = margin + 7;
   const publicUrl = await getPublicRepairUrl(ticket.id);
   const url = publicUrl || `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
-  doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
+  doc.addImage(qr, 'PNG', x, qrY, qrSize, qrSize);
 
-  const headX = x + qrSize + 1.0;
-  headerBlock(doc, headX, margin + 5.6, contentW - (qrSize + 1.0));
+  // En-tête aligné à droite
+  const rightX = pageW - margin;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(5.2);
+  const y1 = margin + 0.8;
+  doc.text('SMARTDISCOUNT31 Nord', rightX, y1, { align: 'right' } as any);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(5.0);
+  const y2 = y1 + 2.0;
+  doc.text('58 Av des Etats Unis', rightX, y2, { align: 'right' } as any);
+  const y3 = y2 + 2.0;
+  doc.text('Lun - Ven | 10H - 19H | Tel : 06 10 66 89 75', rightX, y3, { align: 'right' } as any);
+
+  // Nom client centré
   const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
+  const nameY = y3 + 1.0;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(5.4);
-  doc.text(nameForHeader || '—', headX, margin + 10.6);
+  doc.text(nameForHeader || '—', pageW / 2, nameY, { align: 'center' } as any);
 
-  y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
+  // Démarrer sous le QR et le nom client
+  y = Math.max(qrY + qrSize + 1.0, nameY + 1.0);
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
+
+  // TEL centré
+  const telStr = `TEL : ${custPhone || '—'}`;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.0);
+  doc.text(telStr, pageW / 2, y, { align: 'center' } as any);
+  y += 1.8;
+
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
   const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
 
-  y = fieldLine(doc, 'TEL :', custPhone || '—', x, y, contentW);
+  // TEL centré ci-dessus
   y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'PRIX :', eur(ticket.estimate_amount), x, y, contentW, 0.3, true);
@@ -282,19 +302,32 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   let y = margin + 0.6;
   const contentW = pageW - margin * 2;
 
-  const qrSize = 11;
+  const qrSize = 19;
+  const qrY = margin + 7;
   const publicUrl2 = await getPublicRepairUrl(ticket.id);
   const url = publicUrl2 || `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
-  doc.addImage(qr, 'PNG', x, margin, qrSize, qrSize);
+  doc.addImage(qr, 'PNG', x, qrY, qrSize, qrSize);
 
-  const headX = x + qrSize + 1.0;
-  headerBlock(doc, headX, margin + 5.6, contentW - (qrSize + 1.0));
+  // En-tête aligné à droite
+  const rightX2 = pageW - margin;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(5.2);
+  const y1b = margin + 0.8;
+  doc.text('SMARTDISCOUNT31 Nord', rightX2, y1b, { align: 'right' } as any);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(5.0);
+  const y2b = y1b + 2.0;
+  doc.text('58 Av des Etats Unis', rightX2, y2b, { align: 'right' } as any);
+  const y3b = y2b + 2.0;
+  doc.text('Lun - Ven | 10H - 19H | Tel : 06 10 66 89 75', rightX2, y3b, { align: 'right' } as any);
+
+  // Nom client centré
   const nameForHeader = ticket.customer?.name ?? ticket.customer_name ?? '';
+  const nameY2 = y3b + 1.0;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(5.4);
-  doc.text(nameForHeader || '—', headX, margin + 10.6);
+  doc.text(nameForHeader || '—', pageW / 2, nameY2, { align: 'center' } as any);
 
-  y = Math.max(margin + qrSize + 1.2, margin + 10.6 + 1.0) + 3.0;
+  // Démarrer sous le QR et le nom client
+  y = Math.max(qrY + qrSize + 1.0, nameY2 + 1.0);
   const custPhone = ticket.customer?.phone ?? ticket.customer_phone ?? '';
   const model = `${ticket.device_brand || ''} ${ticket.device_model || ''}`.trim();
   const panne = (ticket.issue_description || '').replace(/\s*\[(?:pattern|Pattern)\s*:\s*[^\]]+\]\s*/i, '').trim();
@@ -303,7 +336,7 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   const pattern = patternMatch ? patternMatch[1] : null;
   const vp = ticket.pin_code ? `PIN: ${ticket.pin_code}${pattern ? '  |  PATTERN: ' + pattern : ''}` : (pattern ? `PATTERN: ${pattern}` : '—');
 
-  y = fieldLine(doc, 'TEL :', custPhone || '—', x, y, contentW);
+  // TEL centré non réimprimé ici (centrage géré au-dessus si besoin)
   y = fieldLineWithTextOffset(doc, 'MODELE :', model || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'PANNE :', panne || '—', x, y, contentW, 0.3, true);
   y = fieldLineWithTextOffset(doc, 'V - P :', vp, x, y, contentW, 0.3, true);
