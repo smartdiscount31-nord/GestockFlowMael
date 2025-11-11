@@ -293,7 +293,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
     }
   };
 
-  const handleAttachPart = (action: 'reserve' | 'order') => {
+  const handleAttachPart = (action: 'reserve' | 'order', overridePrice?: number) => {
     if (!selectedProduct) {
       setError('Aucun produit sélectionné');
       return;
@@ -340,7 +340,7 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
       stock_name: stockInfo?.name || null,
       quantity,
       action,
-      purchase_price: Number(selectedProduct.purchase_price_with_fees ?? selectedProduct.purchase_price ?? 0),
+      purchase_price: overridePrice != null ? Number(overridePrice) : Number(selectedProduct.purchase_price_with_fees ?? selectedProduct.purchase_price ?? 0),
       vat_regime: selectedProduct.vat_type,
     };
 
@@ -751,11 +751,9 @@ export function PartSearchAttach({ onPartsChange, initialParts }: PartSearchAtta
                 onClick={() => {
                   const p = parseFloat(orderPrice);
                   if (isNaN(p) || p <= 0) return;
-                  // Injecter le prix puis attacher en mode order
-                  setSelectedProduct((sp: any) => (sp ? { ...sp, purchase_price: p } : sp));
                   setShowOrderPriceDialog(false);
-                  // Utiliser handleAttachPart avec action 'order'
-                  setTimeout(() => handleAttachPart('order'), 0);
+                  // Appeler directement avec le prix saisi pour éviter la course d'état
+                  handleAttachPart('order', p);
                 }}
                 className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >

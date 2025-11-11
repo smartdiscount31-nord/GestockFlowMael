@@ -61,9 +61,12 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
 
   console.log('[RepairModal] Opened for ticket:', ticket?.id);
 
+  const editRef = React.useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     if (ticket) {
       loadTicketDetails();
+      setIsEditing(true);
       setEdit({
         device_brand: ticket.device_brand,
         device_model: ticket.device_model,
@@ -77,6 +80,10 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
         power_state: ticket.power_state || ''
       });
     }
+    // Scroll vers l'édition après un petit délai pour garantir le rendu
+    setTimeout(() => {
+      try { editRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {}
+    }, 150);
   }, [ticket]);
 
   const loadTicketDetails = async () => {
@@ -132,6 +139,19 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
 
       console.log('[RepairModal] Call logs loaded:', callsData?.length);
       setCallLogs(callsData || []);
+
+      // Charger le prix de la prestation (estimate_amount)
+      try {
+        const { data: ticketRow } = await supabase
+          .from('repair_tickets')
+          .select('estimate_amount')
+          .eq('id', ticket.id)
+          .single();
+        if (ticketRow) {
+          setEdit((prev: any) => ({ ...(prev || {}), estimate_amount: ticketRow.estimate_amount ?? '' }));
+        }
+      } catch {}
+
     } catch (error) {
       console.error('[RepairModal] Error loading ticket details:', error);
     }
@@ -387,6 +407,14 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
               <div>
                 <h3 className="font-semibold text-gray-900 mb-2">Panne décrite</h3>
                 <p className="text-gray-700">{issueText}</p>
+                <p className="text-gray-900 mt-2">
+                  <span className="text-sm text-gray-600">Prix de la prestation: </span>
+                  <span className="font-semibold">
+                    {(edit && edit.estimate_amount !== undefined && edit.estimate_amount !== null && edit.estimate_amount !== '')
+                      ? `${Math.round(Number(edit.estimate_amount))} €`
+                      : '—'}
+                  </span>
+                </p>
               </div>
               {issuePattern && (
                 <div>
@@ -406,6 +434,11 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
                 {ticket.cgv_accepted_at && (
                   <p className="text-sm text-gray-600">CGV acceptées: {new Date(ticket.cgv_accepted_at).toLocaleString('fr-FR')}</p>
                 )}
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-2">Prix de la prestation</h3>
+                <p className="text-gray-700">{(edit && edit.estimate_amount !== undefined && edit.estimate_amount !== null && edit.estimate_amount !== '') ? `${Math.round(Number(edit.estimate_amount))} €` : '—'}</p>
               </div>
 
               <div>
@@ -442,12 +475,27 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
                     </button>
                   )}
                 </div>
+                <div>
+                  <button
+                    onClick={() => setIsEditing(v => !v)}
+                    className="w-full px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200"
+                  >
+                    {isEditing ? 'Fermer l’édition' : 'Modifier la fiche'}
+                  </button>
+                </div>
               </div>
             </div>
 
+          {/* Bandeau mode édition */}
+          {isEditing && (
+            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800 font-medium">Mode édition actif</p>
+            </div>
+          )}
+
           {/* Edition complète de la fiche */}
           {isEditing && edit && (
-            <div className="p-4 border border-gray-200 rounded-lg bg-white">
+            <div ref={editRef} className="p-4 border border-gray-200 rounded-lg bg-white">
               <h3 className="font-semibold text-gray-900 mb-3">Édition de la fiche</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <input className="px-3 py-2 border rounded" placeholder="Marque"
@@ -583,6 +631,7 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
                       });
                       setNewCallNote('');
                       loadTicketDetails();
+                      onStatusChange();
                       setToast({ message: 'Appel enregistré', type: 'success' });
                     } catch (e: any) {
                       setToast({ message: e?.message || 'Erreur enregistrement appel', type: 'error' });
