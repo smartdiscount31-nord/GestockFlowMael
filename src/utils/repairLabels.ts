@@ -246,17 +246,17 @@ async function drawClientOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   let y = margin + 0.6;
   const contentW = pageW - margin * 2;
 
-  const qrSize = 19;
-  const qrY = margin + 7;
+  const qrSize = 15;
+  const qrY = margin + 1;
   const publicUrl = await getPublicRepairUrl(ticket.id);
   const url = publicUrl || `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
-  doc.addImage(qr, 'PNG', x, qrY, qrSize, qrSize);
+  doc.addImage(qr, 'PNG', 0, qrY, qrSize, qrSize);
 
   // En-tête aligné à droite
-  const rightX = pageW - margin;
+  const rightX = pageW - (margin + 3);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(5.2);
-  const y1 = margin + 0.8;
+  const y1 = margin + 3.8;
   doc.text('SMARTDISCOUNT31 Nord', rightX, y1, { align: 'right' } as any);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(5.0);
   const y2 = y1 + 2.0;
@@ -302,17 +302,17 @@ async function drawTechOnPage(doc: jsPDF, ticket: RepairTicketForLabels) {
   let y = margin + 0.6;
   const contentW = pageW - margin * 2;
 
-  const qrSize = 19;
-  const qrY = margin + 7;
+  const qrSize = 15;
+  const qrY = margin + 1;
   const publicUrl2 = await getPublicRepairUrl(ticket.id);
   const url = publicUrl2 || `${window.location.origin}/repair/status/${ticket.id}`;
   const qr = await generateCGVQRCode(url, 180);
-  doc.addImage(qr, 'PNG', x, qrY, qrSize, qrSize);
+  doc.addImage(qr, 'PNG', 0, qrY, qrSize, qrSize);
 
   // En-tête aligné à droite
-  const rightX2 = pageW - margin;
+  const rightX2 = pageW - (margin + 3);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(5.2);
-  const y1b = margin + 0.8;
+  const y1b = margin + 3.8;
   doc.text('SMARTDISCOUNT31 Nord', rightX2, y1b, { align: 'right' } as any);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(5.0);
   const y2b = y1b + 2.0;
