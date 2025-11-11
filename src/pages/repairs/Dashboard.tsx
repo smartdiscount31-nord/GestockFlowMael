@@ -10,7 +10,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Archive, Search, User as UserIcon, CalendarDays, CalendarRange, Smartphone, Laptop, Tablet, Printer, Trash2 } from 'lucide-react';
 import { RepairModal } from '../../components/repairs/RepairModal';
-import RepairMediaGallery from '../../components/repairs/RepairMediaGallery';
 import { Toast } from '../../components/Notifications/Toast';
 import { supabase } from '../../lib/supabase';
 import useNavigate from '../../hooks/useNavigate';
@@ -79,8 +78,6 @@ export default function Dashboard() {
   const [showArchived, setShowArchived] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [showGallery, setShowGallery] = useState(false);
-  const [galleryTicketId, setGalleryTicketId] = useState<string | null>(null);
 
   const [activeStatus, setActiveStatus] = useState<string>('to_repair');
   // Filtres avancés
@@ -718,21 +715,6 @@ export default function Dashboard() {
                       <td className="px-6 py-4 whitespace-nowrap">{created}</td>
                       <td className="px-6 py-4">
                         <button className="font-medium text-primary hover:underline" onClick={() => { setSelectedTicket(t); }}>#{t.repair_number ? t.repair_number : t.id.substring(0,8)}</button>
-                        <div className="text-xs">
-                          <button
-                            className="text-blue-600 hover:underline"
-                            onClick={() => { setGalleryTicketId(t.id); setShowGallery(true); }}
-                          >
-                            Ouvrir la galerie
-                          </button>
-                          <span className="text-[#618986] mx-1">•</span>
-                          <button
-                            className="text-gray-700 hover:underline"
-                            onClick={() => setSelectedTicket(t)}
-                          >
-                            Ouvrir la prise en charge
-                          </button>
-                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <p className="font-medium">{t.customer_name}</p>
@@ -852,7 +834,7 @@ export default function Dashboard() {
               <div key={t.id} className="bg-white dark:bg-[#182c2a] rounded-xl shadow-sm p-4 flex flex-col gap-4">
                 <div className="flex justify-between items-center text-sm">
                   <p className="text-[#618986] dark:text-gray-400">{new Date(t.created_at).toLocaleDateString('fr-FR')} {new Date(t.created_at).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'})}</p>
-                  <button className="font-bold text-primary hover:underline" onClick={() => { setGalleryTicketId(t.id); setShowGallery(true); }}>#{t.repair_number ? t.repair_number : t.id.substring(0,8)}</button>
+                  <button className="font-bold text-primary hover:underline" onClick={() => { setSelectedTicket(t); }}>#{t.repair_number ? t.repair_number : t.id.substring(0,8)}</button>
                 </div>
                 <div className="text-base">
                   <p className="font-medium text-[#111817] dark:text-white">{t.customer_name}</p>
@@ -918,13 +900,6 @@ export default function Dashboard() {
         />
       )}
 
-      {showGallery && galleryTicketId && (
-        <RepairMediaGallery
-          ticketId={galleryTicketId}
-          isOpen={showGallery}
-          onClose={() => { setShowGallery(false); setGalleryTicketId(null); }}
-        />
-      )}
 
       {/* Pop-up fin de séchage */}
       {alertTicket && (

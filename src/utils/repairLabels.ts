@@ -311,6 +311,15 @@ async function buildCombinedLabels(ticket: RepairTicketForLabels): Promise<jsPDF
   };
 
   await drawClient(topY);
+
+  // Séparation visuelle entre les deux étiquettes (ligne fine)
+  try {
+    doc.setDrawColor(180);
+    doc.setLineWidth(0.2);
+    // Ligne horizontale à 32 mm (bord à bord avec une petite marge)
+    doc.line(0.6, 32, 56.4, 32);
+  } catch {}
+
   await drawTech(bottomY);
   return doc;
 }

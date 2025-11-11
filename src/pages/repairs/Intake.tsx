@@ -552,6 +552,11 @@ export function Intake() {
                 <h4 className="font-medium text-gray-700 mb-2">Appareil</h4>
                 <p className="text-gray-900">{formData.device?.device_brand} {formData.device?.device_model}</p>
                 <p className="text-sm text-gray-600">{formData.device?.issue_description}</p>
+                <p className="text-sm text-gray-700 mt-1">
+                  Prix de la prestation: {typeof formData.device?.estimate_amount === 'number'
+                    ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(formData.device.estimate_amount)
+                    : '—'}
+                </p>
               </div>
 
               <div>
