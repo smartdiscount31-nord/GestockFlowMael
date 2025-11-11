@@ -9,7 +9,7 @@ interface NetlifyResponse { statusCode: number; headers?: Record<string,string>;
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
 
-const HTML_HEADERS = { 'Content-Type': 'text/html; charset=utf-8' };
+const HTML_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'X-Robots-Tag': 'noindex' };
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 function html(statusCode: number, body: string): NetlifyResponse { return { statusCode, headers: HTML_HEADERS, body }; }
@@ -91,7 +91,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
     // 2) Charger le ticket (champ minimaux, pas d'infos sensibles)
     const { data: ticket, error: tErr } = await service
       .from('repair_tickets')
-      .select('id, created_at, device_brand, device_model')
+      .select('id, created_at, device_brand, device_model, status, repair_number')
       .eq('id', link.repair_id)
       .maybeSingle();
 
@@ -104,14 +104,68 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
     const created = ticket.created_at ? new Date(ticket.created_at) : null;
     const createdStr = created ? created.toLocaleString('fr-FR', { dateStyle:'full', timeStyle:'short' }) : '—';
 
-    const rows = [
-      `<div class="row"><div class="label">Ticket</div><div class="value">#${shortId}</div></div>`,
-      `<div class="row"><div class="label">Appareil</div><div class="value">${ticket.device_brand || ''} ${ticket.device_model || ''}</div></div>`,
-      `<div class="row"><div class="label">Déposé le</div><div class="value">${createdStr}</div></div>`,
-      `<div class="muted">Pour toute question, appelez le magasin. Ce lien est temporaire et ne montre pas d'informations sensibles (codes PIN, etc.).</div>`
+    // 3) Charger l'historique des statuts (ordre chronologique)
+    const { data: history } = await service
+      .from('repair_status_history')
+      .select('new_status, changed_at, note')
+      .eq('repair_id', link.repair_id)
+      .order('changed_at', { ascending: true });
+
+    // 4) Helpers d'affichage
+    const esc = (s: any) => String(s ?? '').replace(/[&<>"']/g, (c: string) => ({
+      '&':'&','<':'<','>':'>','"':'"',"'":'&#39;'
+    }[c] as string));
+
+    const STATUS_LABELS: Record<string,string> = {
+      quote_todo: 'Devis à faire',
+      parts_to_order: 'Pièces à commander',
+      waiting_parts: 'Attente pièces',
+      to_repair: 'À réparer',
+      in_repair: 'En réparation',
+      drying: 'Séchage',
+      // ready_to_return: interne, on ne l’affiche pas dans la timeline publique
+      delivered: 'Livré',
+      archived: 'Archivé'
+    };
+
+    // 5) Dernière mise à jour
+    const lastUpdateISO = (history && history.length > 0) ? history[history.length - 1].changed_at : ticket.created_at;
+    const lastUpdateStr = lastUpdateISO ? new Date(lastUpdateISO).toLocaleString('fr-FR', { dateStyle:'full', timeStyle:'short' }) : '—';
+
+    // 6) Résumé haut de page
+    const headerRows = [
+      `<div class="row"><div class="label">Ticket</div><div class="value">#${esc(ticket.repair_number || shortId)}</div></div>`,
+      `<div class="row"><div class="label">Appareil</div><div class="value">${esc(ticket.device_brand || '')} ${esc(ticket.device_model || '')}</div></div>`,
+      `<div class="row"><div class="label">Déposé le</div><div class="value">${esc(createdStr)}</div></div>`,
+      `<div class="muted">Dernière mise à jour: ${esc(lastUpdateStr)}</div>`
     ].join('');
 
-    return html(200, page('Suivi de votre réparation', rows));
+    // 7) Timeline des étapes (on masque “ready_to_return” dans la liste publique)
+    const stepsHtml = (history || [])
+      .filter(h => String(h.new_status) !== 'ready_to_return')
+      .map(h => {
+        const when = h.changed_at ? new Date(h.changed_at).toLocaleString('fr-FR', { dateStyle:'long', timeStyle:'short' }) : '—';
+        const lbl = STATUS_LABELS[String(h.new_status)] || String(h.new_status);
+        const note = h.note ? `<div class="muted">${esc(h.note)}</div>` : '';
+        return `<div class="row"><div class="label">${esc(lbl)}</div><div class="value">${esc(when)}</div></div>${note}`;
+      })
+      .join('');
+
+    const timelineBlock = stepsHtml
+      ? `<h2 class="title" style="font-size:14px;margin:12px 0 4px">Étapes</h2>${stepsHtml}`
+      : `<div class="muted" style="margin-top:8px">Aucune étape enregistrée pour le moment.</div>`;
+
+    // 8) Message final si l’appareil est prêt à rendre (message public)
+    const isReady = ticket.status === 'ready_to_return' || (history || []).some(h => String(h.new_status) === 'ready_to_return');
+    const readyMsg = isReady
+      ? `<div style="margin-top:12px;padding:12px;border:1px solid #d1fae5;background:#ecfdf5;border-radius:8px;color:#065f46;font-size:14px;line-height:1.4">
+          smartdiscount31 à le plaisir de vous informer que votre réparation est terminé vous pourvais récupérer votre appareil du lundi au vendredi de 10h à 19h . à bientot et merci de votre comfiance
+        </div>`
+      : '';
+
+    const content = `${headerRows}${timelineBlock}${readyMsg}`;
+
+    return html(200, page('Suivi de votre réparation', content));
   } catch (e: any) {
     const c = `<p class="err">Erreur interne: ${String(e?.message || e)}</p>`;
     return html(500, page('Erreur interne', c));
