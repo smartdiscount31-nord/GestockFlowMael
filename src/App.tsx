@@ -53,6 +53,8 @@ import { InvoiceDetail } from './components/Billing/InvoiceDetail';
 import { QuoteDetail } from './components/Billing/QuoteDetail';
 import { CreditNoteDetail } from './components/Billing/CreditNoteDetail';
 import WorkshopDashboard from './pages/repairs/Dashboard';
+import AppearanceSettings from './pages/settings/AppearanceSettings';
+import { applyTheme, loadThemeFromLocalStorage, DEFAULT_THEME, saveThemeToLocalStorage, getContrastRatio, hexToHslComponents, hslComponentsToHex } from './utils/theme';
 
 function App() {
   const { metrics, isLoading, error, fetchMetrics } = useSalesStore();
@@ -64,6 +66,13 @@ function App() {
   const [showWorkshopMenu, setShowWorkshopMenu] = useState(false);
   const [showReportsMenu, setShowReportsMenu] = useState(false);
   const [isQuickCalcOpen, setIsQuickCalcOpen] = useState(false);
+  const [showThemePopover, setShowThemePopover] = useState(false);
+  const [quickPrimary, setQuickPrimary] = useState<string>(() => {
+    try {
+      const local = loadThemeFromLocalStorage() || DEFAULT_THEME;
+      return hslComponentsToHex(local.primary);
+    } catch { return '#3b82f6'; }
+  });
   const [openSections, setOpenSections] = useState<string[]>([]);
   const [showConsignments, setShowConsignments] = useState(false);
   const [period, setPeriod] = useState<'jour' | 'semaine' | 'mois' | 'personnalise'>('semaine');
@@ -118,7 +127,7 @@ function App() {
       'select-type','add-product','add-product-pam','add-product-multiple',
       'customers','consignments','agenda',
       // Settings / tools / marketplace
-      'mail-settings','invoice-settings','credit-note-settings','settings-ebay','settings-users',
+      'mail-settings','invoice-settings','credit-note-settings','settings-ebay','settings-users','appearance-settings',
       'marketplace-pricing','repair-calculator','atelier-prise-en-charge','atelier-dashboard','mobile-actions','fiche-magasin','reports-sales','refunds'
     ]);
 
@@ -158,6 +167,7 @@ function App() {
       if (p === '/settings/mail') return 'mail-settings';
       if (p === '/settings/ebay') return 'settings-ebay';
       if (p === '/settings/users') return 'settings-users';
+      if (p === '/settings/appearance') return 'appearance-settings';
 
       // Products sections
       if (p === '/products') return 'product-list';
@@ -228,6 +238,23 @@ function App() {
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  // Apply local theme immediately, then best-effort fetch from Supabase
+  useEffect(() => {
+    try { applyTheme(loadThemeFromLocalStorage() || DEFAULT_THEME); } catch {}
+    (async () => {
+      try {
+        const { data } = await supabase.from('ui_preferences').select('value').eq('key','theme').maybeSingle();
+        const val: any = (data as any)?.value;
+        if (val) {
+          const json = JSON.parse(val);
+          applyTheme(json);
+          saveThemeToLocalStorage(json);
+          try { setQuickPrimary(hslComponentsToHex(json.primary || DEFAULT_THEME.primary)); } catch {}
+        }
+      } catch {}
+    })();
   }, []);
 
   // Ecoute le total combiné émis par ConsignmentsSection pour mettre à jour le bandeau bleu
@@ -730,6 +757,8 @@ function App() {
           return can('accessSettings', userRole) ? <EbaySettings /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
         case 'settings-users':
           return can('accessSettings', userRole) ? <UsersManagement /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
+        case 'appearance-settings':
+          return can('accessSettings', userRole) ? <AppearanceSettings /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
         case 'mail-settings':
           return can('accessSettings', userRole) ? <MailSettingsPage /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
         case 'invoice-settings':
@@ -1458,6 +1487,13 @@ function App() {
                 </a>
                 <a
                   href="#"
+                  onClick={() => setCurrentPage('appearance-settings')}
+                  className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
+                >
+                  Apparence / Thème
+                </a>
+                <a
+                  href="#"
                   onClick={() => setCurrentPage('mail-settings')}
                   className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
                 >
@@ -1564,6 +1600,53 @@ function App() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+                {/* Quick Theme Picker */}
+                <div className="relative">
+                  <button type="button" onClick={() => setShowThemePopover(v=>!v)} title="Apparence / Couleur principale" className="px-2 py-1 rounded-md hover:bg-white/10">🎨</button>
+                  {showThemePopover && (
+                    <div className="absolute right-0 mt-2 w-64 bg-white text-[#111817] rounded-lg shadow-xl border border-gray-200 p-3 z-50">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">Couleur principale</span>
+                        <input
+                          type="color"
+                          value={quickPrimary}
+                          onChange={(e) => {
+                            const newHex = e.target.value;
+                            const ratio = getContrastRatio('#ffffff', newHex);
+                            if (ratio < 4.5) {
+                              const ok = window.confirm('Contraste < 4.5:1 avec du texte blanc. Enregistrer quand même ?');
+                              if (!ok) return;
+                            }
+                            setQuickPrimary(newHex);
+                            const hsl = hexToHslComponents(newHex);
+                            applyTheme({ primary: hsl });
+                            const local = loadThemeFromLocalStorage() || DEFAULT_THEME;
+                            const next = { ...local, primary: hsl } as any;
+                            saveThemeToLocalStorage(next);
+                            // Best-effort sync
+                            (async () => { try { await supabase.from('ui_preferences').upsert({ key: 'theme', value: JSON.stringify(next) }); } catch {} })();
+                          }}
+                          className="h-8 w-12 cursor-pointer"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          try { (window as any).__setCurrentPage?.('appearance-settings'); } catch {}
+                          setShowThemePopover(false);
+                          try {
+                            const u = new URL(window.location.href);
+                            u.searchParams.set('page', 'appearance-settings');
+                            window.history.replaceState({}, '', `${u.pathname}${u.search}${u.hash}`);
+                            window.dispatchEvent(new PopStateEvent('popstate'));
+                          } catch {}
+                        }}
+                        className="mt-3 text-sm text-blue-600 hover:underline"
+                      >
+                        Ouvrir les paramètres d’apparence →
+                      </button>
                     </div>
                   )}
                 </div>

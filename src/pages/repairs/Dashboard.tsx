@@ -383,10 +383,17 @@ export default function Dashboard() {
       // Ouvrir 2 onglets placeholders immédiatement (anti popup-blocker)
       clientWin = window.open('', '_blank');
       techWin = window.open('', '_blank');
+      try { if (clientWin?.document) { clientWin.document.write('<p style="font:14px sans-serif">Ouverture de l’étiquette client…</p>'); clientWin.document.close(); } } catch {}
+      try { if (techWin?.document) { techWin.document.write('<p style="font:14px sans-serif">Ouverture de l’étiquette technicien…</p>'); techWin.document.close(); } } catch {}
+      if (!clientWin || !techWin) {
+        setToast({ message: 'Votre navigateur a bloqué un onglet. Si besoin, réessayez ou ouvrez manuellement la 2e étiquette.', type: 'info' });
+      }
 
       if (t.label_client_url && t.label_tech_url) {
-        if (clientWin) clientWin.location.href = t.label_client_url;
-        if (techWin) techWin.location.href = t.label_tech_url;
+        const existingClientUrl = t.label_client_url as string;
+        const existingTechUrl = t.label_tech_url as string;
+        setTimeout(() => { try { if (clientWin) clientWin.location.href = existingClientUrl; } catch {} }, 30);
+        setTimeout(() => { try { if (techWin) techWin.location.href = existingTechUrl; } catch {} }, 60);
         return;
       }
 
@@ -417,8 +424,8 @@ export default function Dashboard() {
         await supabase.from('repair_tickets').update({ label_client_url: clientUrl, label_tech_url: techUrl }).eq('id', t.id);
       }
 
-      if (clientWin) clientWin.location.href = clientUrl;
-      if (techWin) techWin.location.href = techUrl;
+      setTimeout(() => { try { if (clientWin) clientWin.location.href = clientUrl; } catch {} }, 30);
+      setTimeout(() => { try { if (techWin) techWin.location.href = techUrl; } catch {} }, 60);
     } catch (e) {
       try { if (clientWin) clientWin.close(); } catch {}
       try { if (techWin) techWin.close(); } catch {}

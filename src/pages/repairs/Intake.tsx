@@ -374,6 +374,8 @@ export function Intake() {
         // Ouvrir 2 onglets placeholders immédiatement pour éviter le popup blocker
         clientWin = window.open('', '_blank');
         techWin = window.open('', '_blank');
+        try { if (clientWin?.document) { clientWin.document.write('<p style="font:14px sans-serif">Ouverture de l’étiquette client…</p>'); clientWin.document.close(); } } catch {}
+        try { if (techWin?.document) { techWin.document.write('<p style="font:14px sans-serif">Ouverture de l’étiquette technicien…</p>'); techWin.document.close(); } } catch {}
 
         const { generateRepairLabels } = await import('../../utils/repairLabels');
         const labelTicket = {
@@ -393,8 +395,8 @@ export function Intake() {
         // Persister les URLs pour réimpression rapide
         await supabase.from('repair_tickets').update({ label_client_url: clientUrl, label_tech_url: techUrl }).eq('id', ticketId);
         // Injecter les URLs dans les onglets ouverts
-        if (clientWin) clientWin.location.href = clientUrl;
-        if (techWin) techWin.location.href = techUrl;
+        setTimeout(() => { try { if (clientWin) clientWin.location.href = clientUrl; } catch {} }, 30);
+        setTimeout(() => { try { if (techWin) techWin.location.href = techUrl; } catch {} }, 60);
       } catch (e) {
         try { if (clientWin) clientWin.close(); } catch {}
         try { if (techWin) techWin.close(); } catch {}
