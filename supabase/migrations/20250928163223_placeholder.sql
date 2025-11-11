@@ -1,0 +1,3 @@
+-- Placeholder migration to align local history with remote entry 20250928163223
+-- This file is intentionally a no-op to satisfy Supabase migration history matching.
+-- Do NOT remove unless you repair history on remote accordingly.
