@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, User, Package, Camera, Clock, FileText, Bell, DollarSign } from 'lucide-react';
 import PatternPreview from './PatternPreview';
+import RepairMediaGallery from './RepairMediaGallery';
 import { supabase } from '../../lib/supabase';
 import { Toast } from '../Notifications/Toast';
 
@@ -40,6 +41,7 @@ interface RepairModalProps {
 export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProps) {
   const [statusHistory, setStatusHistory] = useState<any[]>([]);
   const [media, setMedia] = useState<any[]>([]);
+  const [showGallery, setShowGallery] = useState(false);
   const [parts, setParts] = useState<any[]>([]);
   const [reminders, setReminders] = useState<any[]>([]);
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -555,17 +557,27 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
 
           {media.length > 0 && (
             <div>
-              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <Camera size={18} />
-                Médias ({media.length})
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Camera size={18} />
+                  Médias ({media.length})
+                </h3>
+                <button
+                  onClick={() => setShowGallery(true)}
+                  className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+                >
+                  Voir la galerie
+                </button>
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {media.map((m) => (
-                  <div key={m.id} className="relative">
+                  <div key={m.id} className="relative cursor-zoom-in" onClick={() => setShowGallery(true)}>
                     {m.kind === 'photo' || m.kind === 'diagram' || m.kind === 'signature' ? (
                       <img
                         src={m.file_url}
-                        alt={m.kind}
+                        alt={m.kind || 'media'}
+                        loading="lazy"
+                        onError={(e) => { try { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; } catch {} }}
                         className="w-full h-32 object-cover rounded-lg border border-gray-200"
                       />
                     ) : (
@@ -663,6 +675,7 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
         </div>
       </div>
 
+      <RepairMediaGallery ticketId={ticket.id} isOpen={showGallery} onClose={() => setShowGallery(false)} />
       {toast && (
         <Toast
           message={toast.message}

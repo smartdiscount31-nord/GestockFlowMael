@@ -42,11 +42,14 @@ import UsersManagement from './pages/settings/users';
 import { QuickCalculator } from './components/Products/QuickCalculator';
 import { SalesChart } from './components/Dashboard/SalesChart';
 import { ConsignmentsSection } from './components/ConsignmentsSection';
+import { RoadmapWidget } from './components/roadmap/RoadmapWidget';
 import { Consignments } from './pages/consignments';
 import Login from './pages/Login';
 import MobileActions from './pages/MobileActions';
 import FicheMagasin from './pages/Tools/FicheMagasin';
 import { Agenda } from './pages/Agenda';
+import Roadmap from './pages/Roadmap';
+import RoadmapSettings from './pages/settings/RoadmapSettings';
 import SalesSummary from './pages/reports/SalesSummary';
 import RefundsPage from './pages/billing/RefundsPage';
 import { InvoiceDetail } from './components/Billing/InvoiceDetail';
@@ -80,7 +83,15 @@ function App() {
   useEffect(() => {
     // Stable debounced remote save
     saveThemeRemoteDebouncedRef.current = debounce(async (next: any) => {
-      try { await supabase.from('ui_preferences').upsert({ key: 'theme', value: JSON.stringify(next) }); } catch {}
+      try {
+        await supabase.from('ui_preferences').upsert({
+          user_id: (await supabase.auth.getUser()).data.user?.id,
+          key: 'theme',
+          value: JSON.stringify(next)
+        });
+      } catch (err) {
+        console.warn('[App] Failed to save theme to ui_preferences (non-blocking):', err);
+      }
     }, 500);
   }, []);
   useEffect(() => {
@@ -149,9 +160,9 @@ function App() {
       'dashboard','product-list','product-stock','stock-management',
       'category-management','variant-management','shipping-boxes',
       'select-type','add-product','add-product-pam','add-product-multiple',
-      'customers','consignments','agenda',
+      'customers','consignments','agenda','roadmap',
       // Settings / tools / marketplace
-      'mail-settings','invoice-settings','credit-note-settings','settings-ebay','settings-users','appearance-settings',
+      'mail-settings','invoice-settings','credit-note-settings','roadmap-settings','settings-ebay','settings-users','appearance-settings',
       'marketplace-pricing','repair-calculator','atelier-prise-en-charge','atelier-dashboard','mobile-actions','fiche-magasin','reports-sales','refunds','legal-cgv'
     ]);
 
@@ -210,6 +221,9 @@ function App() {
 
       // Agenda
       if (p === '/agenda') return 'agenda';
+
+      // Roadmap
+      if (p === '/roadmap') return 'roadmap';
 
       // Tools / Workshop
       if (p === '/tools/repair-calculator') return 'repair-calculator';
@@ -272,15 +286,20 @@ function App() {
     try { applyTheme(loadThemeFromLocalStorage() || DEFAULT_THEME); } catch {}
     (async () => {
       try {
-        const { data } = await supabase.from('ui_preferences').select('value').eq('key','theme').maybeSingle();
-        const val: any = (data as any)?.value;
-        if (val) {
-          const json = JSON.parse(val);
-          applyTheme(json);
-          saveThemeToLocalStorage(json);
-          try { setQuickPrimary(hslComponentsToHex(json.primary || DEFAULT_THEME.primary)); } catch {}
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data } = await supabase.from('ui_preferences').select('value').eq('key','theme').eq('user_id', user.id).maybeSingle();
+          const val: any = (data as any)?.value;
+          if (val) {
+            const json = JSON.parse(val);
+            applyTheme(json);
+            saveThemeToLocalStorage(json);
+            try { setQuickPrimary(hslComponentsToHex(json.primary || DEFAULT_THEME.primary)); } catch {}
+          }
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[App] ui_preferences load error (non-blocking):', err);
+      }
     })();
   }, []);
 
@@ -770,6 +789,8 @@ function App() {
           return can('viewConsignments', userRole) ? <Consignments /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
         case 'agenda':
           return <Agenda />;
+        case 'roadmap':
+          return <Roadmap />;
         case 'repair-calculator':
           return <RepairCalculator />;
         case 'fiche-magasin':
@@ -792,6 +813,8 @@ function App() {
           return can('accessSettings', userRole) ? <InvoiceSettings /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
         case 'credit-note-settings':
           return can('accessSettings', userRole) ? <CreditNoteSettings /> : <div className="p-6 text-red-600">Accès non autorisé</div>;
+        case 'roadmap-settings':
+          return <RoadmapSettings />;
         case 'reports-sales':
           return <SalesSummary />;
         case 'refunds':
@@ -823,6 +846,9 @@ function App() {
                 </div>
 
                 <div className="space-y-4">
+                  {/* Roadmap Widget */}
+                  <RoadmapWidget />
+
                   {/* Commandes */}
                   <div className="bg-white/90 rounded-xl shadow-sm border border-gray-200/50 overflow-hidden">
                     <button
@@ -1386,6 +1412,14 @@ function App() {
           )}
           <a
             href="#"
+            onClick={() => setCurrentPage('roadmap')}
+            className={`px-4 py-2 flex items-center space-x-3 text-gray-300 hover:bg-[#24303a] ${currentPage === 'roadmap' ? 'bg-[#24303a]' : ''}`}
+          >
+            <Calendar size={18} />
+            <span>Feuille de route</span>
+          </a>
+          <a
+            href="#"
             onClick={() => setCurrentPage('agenda')}
             className={`px-4 py-2 flex items-center space-x-3 text-gray-300 hover:bg-[#24303a] ${currentPage === 'agenda' ? 'bg-[#24303a]' : ''}`}
           >
@@ -1541,6 +1575,13 @@ function App() {
                   className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
                 >
                   Réglages Avoir
+                </a>
+                <a
+                  href="#"
+                  onClick={() => setCurrentPage('roadmap-settings')}
+                  className="px-8 py-2 flex items-center text-gray-300 hover:bg-[#1a242d]"
+                >
+                  Feuille de route
                 </a>
                 <a
                   href="#"

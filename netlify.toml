@@ -37,3 +37,9 @@ status = 200
 # Runs daily at 17:00 Europe/Paris (16:00 UTC) to send digest of parts to order for repairs
 [functions."repairs-daily-17h-digest"]
   schedule = "0 16 * * *"
+
+# Scheduled Netlify Function: roadmap-process-notifications
+# Runs every hour to check and generate roadmap notifications (reminders and EOD summaries)
+# Handles timezone conversion from Europe/Paris to UTC
+[functions."roadmap-process-notifications"]
+  schedule = "0 * * * *"

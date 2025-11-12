@@ -17,8 +17,17 @@ export default function AppearanceSettings() {
   const saveRemoteDebounced = useMemo(() => debounce(async (t: ThemeHSL) => {
     try {
       saveThemeToLocalStorage(t);
-      await supabase.from('ui_preferences').upsert({ key: 'theme', value: JSON.stringify(t) });
-    } catch {}
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from('ui_preferences').upsert({
+          user_id: user.id,
+          key: 'theme',
+          value: JSON.stringify(t)
+        });
+      }
+    } catch (err) {
+      console.warn('[AppearanceSettings] Failed to save theme to ui_preferences (non-blocking):', err);
+    }
     setPending(false);
   }, 500), []);
 
