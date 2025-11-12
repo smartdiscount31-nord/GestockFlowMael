@@ -409,6 +409,14 @@ export function RepairModal({ ticket, onClose, onStatusChange }: RepairModalProp
               <div>
                 <h3 className="font-semibold text-gray-900 mb-2">Panne décrite</h3>
                 <p className="text-gray-700">{issueText}</p>
+                <p className="text-gray-900 mt-2">
+                  <span className="text-sm text-gray-600">Prix de la prestation: </span>
+                  <span className="font-semibold">
+                    {(edit && edit.estimate_amount !== undefined && edit.estimate_amount !== null && edit.estimate_amount !== '')
+                      ? `${Math.round(Number(edit.estimate_amount))} €`
+                      : '—'}
+                  </span>
+                </p>
               </div>
               {issuePattern && (
                 <div>
